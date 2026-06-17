@@ -1,0 +1,45 @@
+# Cloud Connector Deployment
+# ==========================
+#
+# Start: docker-compose up -d
+# Logs:    docker-compose logs -f
+# Stop:    docker-compose down   (the only intended stop path)
+#
+# restart: always => the container restarts automatically after crashes, OOMs,
+# daemon restarts, and host reboots. Only "docker compose down" stops it
+# permanently.
+
+services:
+  cloud-connector:
+    image: ghcr.io/serviceware/cloud-connector:latest
+    container_name: serviceware-cloud-connector
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # Required: WebSocket URL for the Serviceware Cloud
+      - CLOUD_CONNECTOR_WS_URL=${SERVICEWARE_WS_URL}
+      - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
+      - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
+      - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
+      - CLOUD_CONNECTOR_LOG_LEVEL=${SERVICEWARE_LOG_LEVEL:-info}
+
+      # Function mode: path to the functions directory
+      - CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions
+
+      # Your secrets (from the .env file)
+      - API_TOKEN=${API_TOKEN}
+      - INTERNAL_API_URL=${INTERNAL_API_URL}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+
+    volumes:
+      # Functions directory (read-only)
+      - ./functions:/functions:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Covers the initial WebSocket connection setup
+      start_period: 15s

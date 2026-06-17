@@ -1,0 +1,15 @@
+{
+  "workspace": [
+    "./sdk",
+    "./runtime",
+    "./templates/starter"
+  ],
+  "tasks": {
+    "check": "deno task --cwd sdk check && deno task --cwd runtime check",
+    "dev": "deno task --cwd runtime dev",
+    "generate:api": "deno task --cwd runtime generate:api",
+    "lint": "deno lint sdk runtime",
+    "start": "deno task --cwd runtime start",
+    "test": "deno task --cwd sdk test && deno task --cwd runtime test"
+  }
+}

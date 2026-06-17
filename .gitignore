@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Deno
+.deno/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+out/
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+
+# Test artifacts
+.test-cache/
+
+# Lock files from other package managers (we use deno.lock)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
