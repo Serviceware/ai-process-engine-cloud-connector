@@ -93,13 +93,12 @@ Use clear, descriptive commit messages:
 - `refactor:` for code refactoring
 - `chore:` for maintenance tasks
 
-Example: `feat(runtime): add support for YAML function definitions`
+Example: `feat(runtime): add a YAML forwarding option`
 
 ## Project Structure
 
 ```
 ├── runtime/          # Main runtime code
-├── sdk/              # Cloud Connector SDK
 ├── templates/        # Starter templates and examples
 ├── docs/             # Documentation
 ├── openapi/          # OpenAPI specifications

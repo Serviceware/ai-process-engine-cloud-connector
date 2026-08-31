@@ -7,7 +7,8 @@ export type ConnectorConfig = {
   cloudConnectorHost?: string;
   cloudConnectorClientId?: string;
   cloudConnectorClientSecret?: string;
-  functionsDir: string;
+  /** Path to the single declarative YAML forwarding configuration. */
+  forwardingConfigFile: string;
   heartbeatIntervalMs: number;
   reconnectInitialDelayMs: number;
   reconnectMaxDelayMs: number;
@@ -34,7 +35,7 @@ export type ConnectorConfig = {
 };
 
 const defaultPort = 8080;
-const defaultFunctionsDir = "functions";
+const defaultForwardingConfigFile = "forwarding.yml";
 const defaultHeartbeatSeconds = 30;
 const defaultReconnectInitialSeconds = 1;
 const defaultReconnectMaxSeconds = 30;
@@ -101,8 +102,9 @@ export function loadConfig(
     cloudConnectorHost,
     cloudConnectorClientId,
     cloudConnectorClientSecret,
-    functionsDir: readOptionalPath(env.CLOUD_CONNECTOR_FUNCTIONS_DIR) ??
-      defaultFunctionsDir,
+    forwardingConfigFile:
+      readOptionalPath(env.CLOUD_CONNECTOR_FORWARDING_CONFIG) ??
+        defaultForwardingConfigFile,
     heartbeatIntervalMs,
     reconnectInitialDelayMs: readInteger(
       env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,

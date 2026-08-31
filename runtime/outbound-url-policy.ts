@@ -90,30 +90,6 @@ export function createAllowlistedFetch(
   }) as Fetcher;
 }
 
-/** Installs the default-deny policy for direct fetch calls in function code. */
-export function installOutboundUrlPolicy(
-  patterns: readonly string[],
-): () => void {
-  const previousFetch = globalThis.fetch;
-  const guardedFetch = createAllowlistedFetch(patterns);
-  Object.defineProperty(globalThis, "fetch", {
-    configurable: true,
-    writable: true,
-    value: guardedFetch,
-  });
-
-  return () => {
-    if (globalThis.fetch !== guardedFetch) {
-      return;
-    }
-    Object.defineProperty(globalThis, "fetch", {
-      configurable: true,
-      writable: true,
-      value: previousFetch,
-    });
-  };
-}
-
 function createRedirectRequest(
   source: Request,
   target: URL,

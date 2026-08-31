@@ -1,5 +1,0 @@
-{
-  "tasks": {
-    "check": "echo 'YAML functions - no type check needed'"
-  }
-}

@@ -1,41 +1,29 @@
 import type { ConnectorConfig } from "./config.ts";
 import { loadConfig } from "./config.ts";
-import { ConnectorRuntime } from "./connector.ts";
-import { watchFunctionsDirectory } from "./function-watcher.ts";
+import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
-import {
-    fetchWithoutOutboundUrlPolicy,
-    installOutboundUrlPolicy,
-} from "./outbound-url-policy.ts";
-import {
-    createReloadableProtocolExecutor,
-    type ReloadableProtocolExecutor,
-} from "./reloadable-request-executor.ts";
+import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
+import { RuntimeError } from "./runtime-error.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
 import { delay, runCloudWebSocketClient } from "./websocket-client.ts";
+import { createYamlForwardingExecutor } from "./yaml-forwarding.ts";
 
 /** Exit codes (sysexits.h) so a supervisor can distinguish failure modes. */
 const EX_SOFTWARE = 70;
 const EX_OSERR = 71;
 const EX_CONFIG = 78;
 
-/**
- * Select the request executor. Functions are opt-in: when the functions
- * directory has at least one route, run in function mode; otherwise the
- * Cloud Connector is a transparent proxy that forwards each request to the
- * absolute URL it carries.
- */
 export function createProtocolExecutor(
     config: ConnectorConfig,
     logger: RuntimeLogger = createLogger(config.logLevel),
-): Promise<ReloadableProtocolExecutor> {
-    return createReloadableProtocolExecutor({ config, logger });
+): Promise<ProtocolExecutor> {
+    return createYamlForwardingExecutor({ config, logger });
 }
 
 export type RuntimeBundle = {
     runtime: ConnectorRuntime;
-    protocolExecutor: ReloadableProtocolExecutor;
+    protocolExecutor: ProtocolExecutor;
 };
 
 export async function createRuntimeBundle(
@@ -211,7 +199,6 @@ if (import.meta.main) {
     try {
         config = loadConfig();
         logger = createLogger(config.logLevel);
-        installOutboundUrlPolicy(config.outboundUrlAllowlist);
         logger.info(
             config.outboundUrlAllowlist.length === 0
                 ? "Outbound URL allowlist is empty; all workload HTTP requests are blocked"
@@ -229,11 +216,15 @@ if (import.meta.main) {
     try {
         runtimeBundle = await createRuntimeBundle(config, logger);
     } catch (error) {
+        const configurationFailure = error instanceof RuntimeError &&
+            (error.code === "CONFIG_ERROR" || error.code === "YAML_PARSE_ERROR");
         console.error(
-            "[cloud-connector] FATAL: failed to initialize runtime:",
+            configurationFailure
+                ? "[cloud-connector] FATAL: invalid forwarding configuration:"
+                : "[cloud-connector] FATAL: failed to initialize runtime:",
             error,
         );
-        Deno.exit(EX_SOFTWARE);
+        Deno.exit(configurationFailure ? EX_CONFIG : EX_SOFTWARE);
     }
 
     const status = createRuntimeStatus();
@@ -274,18 +265,6 @@ if (import.meta.main) {
             server,
             config,
             handler,
-            abortController.signal,
-            logger,
-        ),
-        superviseTask(
-            "functions-watcher",
-            () =>
-                watchFunctionsDirectory({
-                    functionsDir: config.functionsDir,
-                    logger,
-                    reload: (reason) => runtimeBundle.protocolExecutor.reload(reason),
-                    signal: abortController.signal,
-                }),
             abortController.signal,
             logger,
         ),

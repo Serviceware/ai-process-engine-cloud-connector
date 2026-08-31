@@ -11,7 +11,7 @@ Deno.test("loadConfig uses documented defaults", () => {
     cloudConnectorHost: undefined,
     cloudConnectorClientId: undefined,
     cloudConnectorClientSecret: undefined,
-    functionsDir: "functions",
+    forwardingConfigFile: "forwarding.yml",
     heartbeatIntervalMs: 30_000,
     reconnectInitialDelayMs: 1_000,
     reconnectMaxDelayMs: 30_000,
@@ -34,7 +34,7 @@ Deno.test("loadConfig reads explicit values and trims optional paths", () => {
     CLOUD_CONNECTOR_HOST: " https://cloud.example ",
     CLOUD_CONNECTOR_CLIENT_ID: " client-id ",
     CLOUD_CONNECTOR_CLIENT_SECRET: " client-secret ",
-    CLOUD_CONNECTOR_FUNCTIONS_DIR: " functions ",
+    CLOUD_CONNECTOR_FORWARDING_CONFIG: " config/forwarding.yml ",
     CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS: "5",
     CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "2",
     CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "9",
@@ -48,7 +48,7 @@ Deno.test("loadConfig reads explicit values and trims optional paths", () => {
   assertEquals(config.cloudConnectorHost, "https://cloud.example/");
   assertEquals(config.cloudConnectorClientId, "client-id");
   assertEquals(config.cloudConnectorClientSecret, "client-secret");
-  assertEquals(config.functionsDir, "functions");
+  assertEquals(config.forwardingConfigFile, "config/forwarding.yml");
   assertEquals(config.heartbeatIntervalMs, 5_000);
   assertEquals(config.reconnectInitialDelayMs, 2_000);
   assertEquals(config.reconnectMaxDelayMs, 9_000);

@@ -14,7 +14,7 @@ const baseConfig: ConnectorConfig = {
     heartbeatIntervalMs: 1,
     reconnectInitialDelayMs: 1,
     reconnectMaxDelayMs: 1,
-    functionsDir: "functions",
+    forwardingConfigFile: "forwarding.yml",
     connectTimeoutMs: 1_000,
     reconnectStableThresholdMs: 50,
     heartbeatTimeoutFactor: 0,

@@ -1,18 +1,11 @@
 {
-  "workspace": [
-    "./sdk",
-    "./runtime",
-    "./templates/starter",
-    "./templates/examples/ad-user-export",
-    "./templates/examples/erp-integration",
-    "./templates/examples/ticketing-yaml"
-  ],
+  "workspace": ["./runtime"],
   "tasks": {
-    "check": "deno task --cwd sdk check && deno task --cwd runtime check && deno task --cwd templates/starter check && deno task --cwd templates/examples/ad-user-export check && deno task --cwd templates/examples/erp-integration check && deno task --cwd templates/examples/ticketing-yaml check",
+    "check": "deno task --cwd runtime check",
     "dev": "deno task --cwd runtime dev",
     "generate:api": "deno task --cwd runtime generate:api",
-    "lint": "deno lint sdk runtime templates/starter/functions templates/examples/ad-user-export/functions templates/examples/erp-integration/functions",
+    "lint": "deno lint runtime",
     "start": "deno task --cwd runtime start",
-    "test": "deno task --cwd sdk test && deno task --cwd runtime test"
+    "test": "deno task --cwd runtime test"
   }
 }

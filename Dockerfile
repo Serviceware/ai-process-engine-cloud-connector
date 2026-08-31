@@ -5,7 +5,6 @@ WORKDIR /app
 
 # Copy source files
 COPY runtime/ ./runtime/
-COPY sdk/ ./sdk/
 
 # Cache dependencies with the runtime configuration and lock file.
 RUN deno cache --config runtime/deno.json runtime/main.ts

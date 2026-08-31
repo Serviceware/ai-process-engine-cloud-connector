@@ -1,7 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
   createAllowlistedFetch,
-  installOutboundUrlPolicy,
   type Fetcher,
   OutboundUrlAllowlist,
 } from "./outbound-url-policy.ts";
@@ -29,19 +28,6 @@ Deno.test("OutboundUrlAllowlist matches normalized URLs with configured regexes"
 Deno.test("OutboundUrlAllowlist supports an explicit match-all expression", () => {
   const allowlist = new OutboundUrlAllowlist([".*"]);
   assertEquals(allowlist.allows("https://any.example/path"), true);
-});
-
-Deno.test("installed policy guards direct fetch calls", async () => {
-  const restore = installOutboundUrlPolicy([]);
-  try {
-    await assertRejects(
-      () => fetch("https://blocked.example/path"),
-      RuntimeError,
-      "OUTBOUND_URL_ALLOWLIST",
-    );
-  } finally {
-    restore();
-  }
 });
 
 Deno.test("allowlisted fetch blocks before sending a request", async () => {

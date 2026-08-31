@@ -1,122 +1,90 @@
-# Cloud Connector Release Guide
+# Cloud Connector release guide
 
-This guide is the maintainer checklist for releasing the Cloud Connector and its
-SDK. Version `3.0.0` is a major release because workload HTTP access changes from
-implicit access to default-deny.
+Version `3.0.0` is a breaking security release. Workload access changes to
+default-deny and customer scripting, the SDK, file-based routes, and transparent
+proxy fallback are removed. A deployment must provide one valid YAML forwarding
+configuration.
 
 ## Release contract
 
 For one release, these values must agree:
 
-- the release and Git tag, for example `3.0.0` and `v3.0.0`;
-- `version` in `sdk/deno.json`;
-- the SDK major used by maintained TypeScript templates;
-- the container tag in maintained deployment examples;
-- the matching entry in `CHANGELOG.md`.
+- release version and Git tag, for example `3.0.0` and `v3.0.0`;
+- container tags in maintained compose examples; and
+- the matching `CHANGELOG.md` entry.
 
-Do not publish from a dirty checkout. Build every artifact from the exact commit
-that receives the release tag.
+There is no SDK artifact to publish.
 
-## Upgrade requirement for 3.0.0
+## Upgrade requirements
 
-Configure `OUTBOUND_URL_ALLOWLIST` before upgrading an existing deployment.
-Without an explicit allowlist, the Cloud Connector starts normally but rejects
-all workload HTTP targets and redirects with `OUTBOUND_URL_NOT_ALLOWED`.
+Before replacing an earlier deployment:
 
-Use anchored expressions and include a hostname boundary:
+1. remove customer TypeScript/JavaScript function mounts and SDK dependencies;
+2. consolidate forwarding behavior into one `forwarding.yml`;
+3. set `CLOUD_CONNECTOR_FORWARDING_CONFIG` to its container path;
+4. configure `OUTBOUND_URL_ALLOWLIST` for the YAML target and approved
+   redirects; and
+5. restart the container after every YAML change.
 
-```env
-# Permit one HTTPS host and every path on it
-OUTBOUND_URL_ALLOWLIST=["^https://api[.]example[.]com(?:/|$)"]
-
-# Permit two internal targets
-OUTBOUND_URL_ALLOWLIST=["^https://api[.]example[.]com(?:/|$)","^http://erp:8080(?:/|$)"]
-```
-
-Keep `[]` when workload HTTP must remain disabled. The explicit unrestricted
-configuration `OUTBOUND_URL_ALLOWLIST=[".*"]` should be temporary or backed by a
-documented security decision. The Serviceware Cloud OAuth and WebSocket connection does
-not need an entry.
+Without a readable, valid YAML file, startup fails. Without an explicit
+allowlist, startup succeeds but every workload target is rejected.
 
 ## Pre-release verification
 
-Use Deno `2.8.1`, matching the production image, and a current Docker/Compose
-installation.
+Use Deno `2.8.1`, matching the production image:
 
 ```bash
 git diff --check
 deno task check
 deno task lint
 deno task test
-(cd sdk && deno publish --dry-run)
 
-docker build --pull \
-  --tag ghcr.io/serviceware/cloud-connector:3.0.0 .
-
+docker build --pull --tag ghcr.io/serviceware/cloud-connector:3.0.0 .
 docker compose --file templates/starter/docker-compose.yml config --quiet
-docker compose --file templates/examples/ad-user-export/docker-compose.yml config --quiet
-docker compose --file templates/examples/erp-integration/docker-compose.yml config --quiet
 docker compose --file templates/examples/ticketing-yaml/docker-compose.yml config --quiet
 ```
 
-Smoke-test the built image without cloud credentials:
+Smoke-test with the starter YAML mounted:
 
 ```bash
 docker run --rm --detach \
-  --name edge-connector-release-smoke \
+  --name cloud-connector-release-smoke \
   --publish 18080:8080 \
+  --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
+  --env INTERNAL_API_URL=https://internal.example \
   --env OUTBOUND_URL_ALLOWLIST='[]' \
+  --volume "$PWD/templates/starter/forwarding.yml:/config/forwarding.yml:ro" \
   ghcr.io/serviceware/cloud-connector:3.0.0
 
 curl --fail http://localhost:18080/health
-docker inspect --format '{{.State.Health.Status}}' edge-connector-release-smoke
-docker stop edge-connector-release-smoke
+docker inspect --format '{{.State.Health.Status}}' cloud-connector-release-smoke
+docker stop cloud-connector-release-smoke
 ```
 
-The health endpoint must return HTTP 200 and the container must become
-`healthy`. Review the changelog, generated diff, and dependency lock file before
-approval. Confirm that no credentials, local environment files, or build output
-are included.
+Before approval, also confirm:
+
+- no `.ts`, `.js`, `.mjs`, `.cjs`, `.py`, or SDK files exist below `templates/`;
+- no dynamic import or evaluated customer content remains in `runtime/`;
+- an absolute inbound URL cannot replace the YAML target origin;
+- the empty allowlist blocks before network I/O;
+- initial and redirected allowed requests succeed only when matched;
+- malformed and missing YAML fail startup; and
+- documentation and examples use only Cloud Connector and Serviceware Cloud
+  naming.
 
 ## Publish
 
-After the verified commit is merged, create and push the annotated tag:
+After merging the verified commit:
 
 ```bash
 git tag --annotate v3.0.0 --message "Cloud Connector 3.0.0"
 git push origin v3.0.0
-```
-
-Publish the SDK and container from a clean checkout of that tag. Authentication
-for JSR and the GitHub Container Registry must already be configured.
-
-```bash
-(cd sdk && deno publish)
-
 docker push ghcr.io/serviceware/cloud-connector:3.0.0
 docker tag ghcr.io/serviceware/cloud-connector:3.0.0 \
   ghcr.io/serviceware/cloud-connector:3
 docker push ghcr.io/serviceware/cloud-connector:3
 ```
 
-Move `latest` only when `3.0.0` is the approved default production release:
-
-```bash
-docker tag ghcr.io/serviceware/cloud-connector:3.0.0 \
-  ghcr.io/serviceware/cloud-connector:latest
-docker push ghcr.io/serviceware/cloud-connector:latest
-```
-
-Create the GitHub release from `v3.0.0` using the `3.0.0` changelog entry. Call
-out the allowlist migration at the top of the release notes.
-
-## Post-release verification
-
-- Pull `ghcr.io/serviceware/cloud-connector:3.0.0` on a clean host.
-- Repeat the health smoke test with the pulled image.
-- Verify that an empty allowlist rejects a workload request and that an anchored
-  test allowlist permits only its intended URL.
-- Install `jsr:@serviceware/cloud-connector-sdk@3` in a clean Deno project and
-  type-check a minimal function.
-- Record the image digest and links to the GitHub and JSR releases in the release
-  record.
+Move `latest` only when the release is approved as the production default.
+Record the image digest and release URL after pulling and repeating the smoke
+test on a clean host.

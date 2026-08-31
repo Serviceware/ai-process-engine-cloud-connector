@@ -13,26 +13,32 @@ follow [Semantic Versioning](https://semver.org/).
 - An absent variable and `OUTBOUND_URL_ALLOWLIST=[]` both deny every workload
   URL. `OUTBOUND_URL_ALLOWLIST=[".*"]` is the explicit, unrestricted opt-out and
   should only be used after a security review.
-- The SDK package and all maintained TypeScript examples now use major version
-  3.
+- Customer TypeScript, JavaScript, and other executable customization is no
+  longer supported. The SDK, dynamic module loader, file-based routes, and
+  script examples were removed.
+- Every deployment must provide one YAML forwarding file through
+  `CLOUD_CONNECTOR_FORWARDING_CONFIG`. Missing or invalid YAML fails startup.
+- The transparent absolute-URL proxy fallback was removed. An inbound request
+  cannot select a target origin.
 
 ### Security
 
-- Enforced the outbound URL allowlist for transparent proxy requests, YAML
-  targets, SDK upstream/proxy helpers, and `fetch` calls made by trusted
-  TypeScript or JavaScript functions.
+- Enforced the outbound URL allowlist for the YAML forwarding target and every
+  redirect destination.
 - Revalidated every HTTP redirect target before following it and limited
   redirect chains to 20 hops.
 - Removed authorization, proxy authorization, and cookie credentials when a
   redirect crosses an origin boundary.
-- Kept the required Serviceware Cloud OAuth and WebSocket control-plane traffic outside
-  the workload policy.
+- Kept the required Serviceware Cloud OAuth and WebSocket control-plane traffic
+  outside the workload policy.
 - Added the stable `OUTBOUND_URL_NOT_ALLOWED` runtime error code.
 
 ### Changed
 
-- Documented default-deny configuration, safe regular-expression examples,
-  deployment migration, and the trusted-function boundary.
+- Replaced function routing and hot reload with one startup-validated,
+  declarative `forwarding.yml` execution path.
+- Documented default-deny configuration, safe regular-expression examples, and
+  the YAML-only deployment migration.
 - Pinned maintained container examples to `3.0.0` instead of `latest`.
 
 ### Fixed

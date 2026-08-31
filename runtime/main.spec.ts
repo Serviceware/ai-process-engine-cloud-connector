@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { loadConfig } from "./config.ts";
 import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
 import type {
@@ -117,7 +117,7 @@ Deno.test("runs protocol executor for request frames", async () => {
                 executedUrl = frame.request.url;
                 return Promise.resolve({
                     statusCode: 201,
-                    headers: { "x-function": ["ok"] },
+                    headers: { "x-forwarded": ["ok"] },
                     body: `called:${frame.request.url}`,
                 });
             },
@@ -144,7 +144,7 @@ Deno.test("runs protocol executor for request frames", async () => {
         requestId,
         response: {
             statusCode: 201,
-            headers: { "x-function": ["ok"] },
+            headers: { "x-forwarded": ["ok"] },
             body: "called:/internal/orders",
         },
     }]);
@@ -166,14 +166,14 @@ Deno.test("responds to heartbeat frames with heartbeat", async () => {
     assertEquals(sentFrames[0].type, "heartbeat");
 });
 
-Deno.test("sends error frame when function router throws", async () => {
+Deno.test("sends error frame when forwarding fails", async () => {
     const sentFrames: WritableFrame[] = [];
     const runtime = new ConnectorRuntime({
         protocolExecutor: {
             execute: () => {
                 throw new RuntimeError(
-                    "FUNCTION_REJECTED",
-                    "Request rejected by function",
+                    "FORWARDING_REJECTED",
+                    "Request rejected by forwarding policy",
                 );
             },
         } as unknown as ProtocolExecutor,
@@ -193,34 +193,47 @@ Deno.test("sends error frame when function router throws", async () => {
     assertEquals(sentFrames[0].type, "response");
     assertEquals(
         (sentFrames[0] as { error?: { code: string } }).error?.code,
-        "FUNCTION_REJECTED",
+        "FORWARDING_REJECTED",
     );
 });
 
-Deno.test("createProtocolExecutor uses HTTP proxy mode when no functions directory exists", async () => {
-    const executor = await createProtocolExecutor(
-        loadConfig({ CLOUD_CONNECTOR_FUNCTIONS_DIR: "./does-not-exist" }),
-        silentLogger,
+Deno.test("createProtocolExecutor requires a YAML forwarding configuration", async () => {
+    await assertRejects(
+        () =>
+            createProtocolExecutor(
+                loadConfig({
+                    CLOUD_CONNECTOR_FORWARDING_CONFIG: "./does-not-exist.yml",
+                }),
+                silentLogger,
+            ),
+        RuntimeError,
+        "Cannot read required YAML forwarding config",
     );
-
-    assertEquals(executor.mode, "http-proxy");
 });
 
-Deno.test("createProtocolExecutor uses HTTP function mode when the directory has routes", async () => {
-    const dir = await Deno.makeTempDir();
+Deno.test("createProtocolExecutor loads YAML forwarding only", async () => {
+    const file = await Deno.makeTempFile({ suffix: ".yml" });
     try {
         await Deno.writeTextFile(
-            `${dir}/health.ts`,
-            "export const GET = () => new Response('ok');\n",
+            file,
+            "target: https://internal.example\nmethods: [GET]\n",
         );
         const executor = await createProtocolExecutor(
-            loadConfig({ CLOUD_CONNECTOR_FUNCTIONS_DIR: dir }),
+            loadConfig({ CLOUD_CONNECTOR_FORWARDING_CONFIG: file }),
             silentLogger,
         );
-        assertEquals(executor.mode, "http-functions");
-        assertEquals(executor.routes.map((route) => route.path), ["/health"]);
+        await assertRejects(
+            () =>
+                executor.execute({
+                    type: "request",
+                    requestId,
+                    request: { method: "GET", url: "/health" },
+                }),
+            RuntimeError,
+            "OUTBOUND_URL_ALLOWLIST",
+        );
     } finally {
-        await Deno.remove(dir, { recursive: true });
+        await Deno.remove(file);
     }
 });
 
