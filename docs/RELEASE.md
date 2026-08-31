@@ -68,7 +68,9 @@ Before approval, also confirm:
 - an absolute inbound URL cannot replace the YAML target origin;
 - the empty allowlist blocks before network I/O;
 - initial and redirected allowed requests succeed only when matched;
-- malformed and missing YAML fail startup; and
+- malformed and missing YAML fail startup;
+- removed YAML customization fields such as conditions, body/status changes, and
+  arbitrary URL rewrites fail validation; and
 - documentation and examples use only Cloud Connector and Serviceware Cloud
   naming.
 

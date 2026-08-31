@@ -37,6 +37,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Replaced function routing and hot reload with one startup-validated,
   declarative `forwarding.yml` execution path.
+- Limited YAML to one target, method restrictions, timeout, headers, and one
+  static path prefix. Removed conditions, body/status manipulation, and
+  arbitrary URL rewrites from the configuration contract.
 - Documented default-deny configuration, safe regular-expression examples, and
   the YAML-only deployment migration.
 - Pinned maintained container examples to `3.0.0` instead of `latest`.

@@ -17,9 +17,10 @@ expression; use `[".*"]` only when unrestricted workload access is an
 intentional security decision.
 
 Edit `forwarding.yml` to configure the one upstream target, optional method
-restrictions, timeout, and declarative request/response transformations. Every
+restrictions, timeout, forwarding headers, and one static path prefix. Every
 inbound workload path and query string is forwarded to that target. There are no
-route files and no script hooks.
+conditions, body/status changes, arbitrary rewrites, route files, or script
+hooks.
 
 ## Start
 

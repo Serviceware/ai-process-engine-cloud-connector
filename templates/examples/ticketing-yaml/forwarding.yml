@@ -16,8 +16,7 @@ request:
     remove:
       - x-forwarded-for
       - x-real-ip
-  url:
-    prefix: "/api/v2"
+  pathPrefix: "/api/v2"
 
 response:
   headers:

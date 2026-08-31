@@ -12,6 +12,9 @@ The supplied configuration:
 - removes selected internal request and response headers; and
 - times out upstream calls after 30 seconds.
 
+The example has no conditions, body/status manipulation, arbitrary URL rewrite,
+or request-dependent target selection.
+
 `OUTBOUND_URL_ALLOWLIST` permits only the example target. Redirect destinations
 are checked against the same allowlist.
 

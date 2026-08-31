@@ -4,14 +4,14 @@ import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
 import { RuntimeError } from "./runtime-error.ts";
 import {
-  applyYamlRequestTransform,
-  applyYamlResponseTransform,
+  applyYamlRequestForwardingConfig,
+  applyYamlResponseForwardingConfig,
   createYamlForwardingExecutor,
   interpolate,
   parseYamlForwardingConfig,
-  type YamlRequestTransformConfig,
-  type YamlResponseTransformConfig,
-  type YamlTransformContext,
+  type YamlRequestForwardingConfig,
+  type YamlResponseForwardingConfig,
+  type YamlValueContext,
 } from "./yaml-forwarding.ts";
 
 const silentLogger = createLogger("error", {
@@ -21,15 +21,9 @@ const silentLogger = createLogger("error", {
   warn: () => undefined,
 });
 
-const baseContext: YamlTransformContext = {
+const baseContext: YamlValueContext = {
   requestId: "test-request-id",
   startedAt: "2024-01-01T00:00:00.000Z",
-  request: {
-    method: "GET",
-    url: "/api/test",
-    headers: { "content-type": ["application/json"] },
-    body: "test-body",
-  },
   env: {
     API_TOKEN: "secret-token",
     TENANT_ID: "tenant-123",
@@ -77,8 +71,7 @@ request:
   headers:
     set:
       authorization: "Bearer {{ env.API_TOKEN }}"
-  url:
-    prefix: /api
+  pathPrefix: /api
 response:
   headers:
     remove: [server]
@@ -246,71 +239,104 @@ Deno.test("maintained templates contain valid YAML forwarding configuration", as
 Deno.test("interpolate exposes only documented declarative values", () => {
   assertEquals(
     interpolate(
-      "Bearer {{ env.API_TOKEN }} / {{ context.requestId }} / {{ request.url }}",
+      "Bearer {{ env.API_TOKEN }} / {{ context.requestId }}",
       baseContext,
     ),
-    "Bearer secret-token / test-request-id / /api/test",
+    "Bearer secret-token / test-request-id",
   );
   assertEquals(interpolate("{{ env.MISSING }}", baseContext), "");
+  assertEquals(interpolate("{{ request.url }}", baseContext), "");
 });
 
-Deno.test("YAML request transformations update headers, URL, and rejection", () => {
-  const config: YamlRequestTransformConfig = {
+Deno.test("YAML request forwarding config updates headers and path prefix", () => {
+  const config: YamlRequestForwardingConfig = {
     headers: {
       set: { authorization: "Bearer {{ env.API_TOKEN }}" },
       add: { "x-tenant-id": "{{ env.TENANT_ID }}" },
       remove: ["x-internal"],
     },
-    url: { removePrefix: "/api", prefix: "/v2" },
+    pathPrefix: "/v2",
   };
   assertEquals(
-    applyYamlRequestTransform(
+    applyYamlRequestForwardingConfig(
       config,
       {
         method: "GET",
-        url: "/api/users",
+        url: "/users?active=true",
         headers: { "x-internal": ["secret"] },
       },
       baseContext,
     ),
     {
       method: "GET",
-      url: "/v2/users",
+      url: "/v2/users?active=true",
       headers: {
         authorization: ["Bearer secret-token"],
         "x-tenant-id": ["tenant-123"],
       },
     },
   );
-
-  assertThrows(
-    () =>
-      applyYamlRequestTransform(
-        { reject: { if: 'request.url contains "/admin"', message: "denied" } },
-        { method: "GET", url: "/admin" },
-        baseContext,
-      ),
-    RuntimeError,
-    "denied",
-  );
 });
 
-Deno.test("YAML response transformations remain declarative", () => {
-  const config: YamlResponseTransformConfig = {
+Deno.test("YAML response forwarding config changes headers only", () => {
+  const config: YamlResponseForwardingConfig = {
     headers: { add: { "x-request-id": "{{ context.requestId }}" } },
-    body: { set: "request={{ context.requestId }}" },
-    statusCode: { set: 202 },
   };
   assertEquals(
-    applyYamlResponseTransform(
+    applyYamlResponseForwardingConfig(
       config,
       { statusCode: 200, headers: {}, body: "original" },
       baseContext,
     ),
     {
-      statusCode: 202,
+      statusCode: 200,
       headers: { "x-request-id": ["test-request-id"] },
-      body: "request=test-request-id",
+      body: "original",
     },
   );
+});
+
+Deno.test("YAML config rejects removed customization capabilities", () => {
+  const removedCapabilities = [
+    "request:\n  body:\n    set: changed",
+    'request:\n  reject:\n    if: request.method == "GET"',
+    "request:\n  url:\n    rewrite: /other",
+    "response:\n  body:\n    set: changed",
+    "response:\n  statusCode:\n    set: 201",
+    'request:\n  headers:\n    set:\n      x-path: "{{ request.url }}"',
+  ];
+
+  for (const capability of removedCapabilities) {
+    const error = assertThrows(
+      () =>
+        parseYamlForwardingConfig(
+          `target: https://internal.example\n${capability}\n`,
+          "forwarding.yml",
+        ),
+      RuntimeError,
+    );
+    assertEquals(error.code, "CONFIG_ERROR");
+  }
+});
+
+Deno.test("YAML config rejects unsafe path prefixes", () => {
+  for (
+    const prefix of [
+      "relative",
+      "//other-host",
+      "/api?override=true",
+      "/api#fragment",
+      "/{{ env.PREFIX }}",
+    ]
+  ) {
+    assertThrows(
+      () =>
+        parseYamlForwardingConfig(
+          `target: https://internal.example\nrequest:\n  pathPrefix: "${prefix}"\n`,
+          "forwarding.yml",
+        ),
+      RuntimeError,
+      "request.pathPrefix must be an absolute path",
+    );
+  }
 });

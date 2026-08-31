@@ -60,8 +60,7 @@ request:
       x-request-id: "{{ context.requestId }}"
     remove:
       - x-forwarded-for
-  url:
-    prefix: /api/v2
+  pathPrefix: /api/v2
 
 response:
   headers:
@@ -82,27 +81,28 @@ Supported top-level properties:
 | `target`   | yes      | Absolute HTTP(S) base URL; environment interpolation is supported  |
 | `methods`  | no       | Enabled uppercase HTTP methods; all supported methods when omitted |
 | `timeout`  | no       | Upstream timeout from 1,000 to 300,000 ms; default 30,000 ms       |
-| `request`  | no       | Declarative header, URL, body, and rejection transforms            |
-| `response` | no       | Declarative header, body, and status transforms                    |
+| `request`  | no       | Request headers and one static path prefix                         |
+| `response` | no       | Response headers                                                   |
 
-Header transforms support `set`, `add`, and `remove`. URL transforms support
-`prefix`, `suffix`, `removePrefix`, and `rewrite`. See
+Header configuration supports `set`, `add`, and `remove`. `pathPrefix` is the
+only path adjustment and must be a static absolute path. See
 [`schemas/forwarding.schema.json`](schemas/forwarding.schema.json) for the
 complete machine-readable contract.
 
 Available interpolation values:
 
-| Value                     | Meaning                         |
-| ------------------------- | ------------------------------- |
-| `{{ env.NAME }}`          | Environment variable            |
-| `{{ context.requestId }}` | Workload request identifier     |
-| `{{ context.startedAt }}` | Request start timestamp         |
-| `{{ request.url }}`       | Current path and query string   |
-| `{{ request.method }}`    | HTTP method                     |
-| `{{ request.body }}`      | Request body or an empty string |
+| Value                                                                          | Meaning                     |
+| ------------------------------------------------------------------------------ | --------------------------- |
+| `{{ env.NAME }}`                                                               | Environment variable        |
+| `{{ context.requestId }}`                                                      | Workload request identifier |
+| `{{ context.startedAt }}`                                                      | Request start timestamp     |
+| Interpolation is string substitution only. It does not evaluate expressions or |                             |
+| execute code.                                                                  |                             |
 
-Interpolation is string substitution only. It does not evaluate expressions or
-execute code.
+The configuration deliberately does not support conditions, request or response
+body replacement, response status replacement, arbitrary URL rewrites, suffixes,
+prefix removal, multiple targets, or target selection from inbound request
+values.
 
 ## Outbound URL allowlist
 

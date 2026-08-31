@@ -28,12 +28,12 @@
       "default": 30000,
       "description": "Upstream timeout in milliseconds."
     },
-    "request": { "$ref": "#/$defs/requestTransform" },
-    "response": { "$ref": "#/$defs/responseTransform" }
+    "request": { "$ref": "#/$defs/requestConfig" },
+    "response": { "$ref": "#/$defs/responseConfig" }
   },
   "additionalProperties": false,
   "$defs": {
-    "headerTransform": {
+    "headerConfig": {
       "type": "object",
       "properties": {
         "add": {
@@ -51,58 +51,22 @@
       },
       "additionalProperties": false
     },
-    "urlTransform": {
+    "requestConfig": {
       "type": "object",
       "properties": {
-        "prefix": { "type": "string" },
-        "suffix": { "type": "string" },
-        "removePrefix": { "type": "string" },
-        "rewrite": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "requestTransform": {
-      "type": "object",
-      "properties": {
-        "headers": { "$ref": "#/$defs/headerTransform" },
-        "url": { "$ref": "#/$defs/urlTransform" },
-        "body": {
-          "type": "object",
-          "properties": { "set": { "type": "string" } },
-          "additionalProperties": false
-        },
-        "reject": {
-          "type": "object",
-          "properties": {
-            "if": { "type": "string" },
-            "code": { "type": "string" },
-            "message": { "type": "string" }
-          },
-          "additionalProperties": false
+        "headers": { "$ref": "#/$defs/headerConfig" },
+        "pathPrefix": {
+          "type": "string",
+          "pattern": "^/(?!/)[^?#]*$",
+          "description": "Optional static path prefix applied before forwarding."
         }
       },
       "additionalProperties": false
     },
-    "responseTransform": {
+    "responseConfig": {
       "type": "object",
       "properties": {
-        "headers": { "$ref": "#/$defs/headerTransform" },
-        "body": {
-          "type": "object",
-          "properties": { "set": { "type": "string" } },
-          "additionalProperties": false
-        },
-        "statusCode": {
-          "type": "object",
-          "properties": {
-            "set": {
-              "type": "integer",
-              "minimum": 100,
-              "maximum": 599
-            }
-          },
-          "additionalProperties": false
-        }
+        "headers": { "$ref": "#/$defs/headerConfig" }
       },
       "additionalProperties": false
     }

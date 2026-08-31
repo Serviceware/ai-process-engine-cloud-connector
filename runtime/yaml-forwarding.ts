@@ -21,26 +21,14 @@ const supportedMethods = new Set([
   "OPTIONS",
 ]);
 
-export type YamlRequestTransformConfig = {
-  headers?: HeaderTransformConfig;
-  url?: {
-    prefix?: string;
-    suffix?: string;
-    rewrite?: string;
-    removePrefix?: string;
-  };
-  body?: { set?: string };
-  reject?: {
-    if?: string;
-    code?: string;
-    message?: string;
-  };
+export type YamlRequestForwardingConfig = {
+  headers?: HeaderForwardingConfig;
+  /** Static path prefix applied before forwarding. */
+  pathPrefix?: string;
 };
 
-export type YamlResponseTransformConfig = {
-  headers?: HeaderTransformConfig;
-  body?: { set?: string };
-  statusCode?: { set?: number };
+export type YamlResponseForwardingConfig = {
+  headers?: HeaderForwardingConfig;
 };
 
 export type YamlForwardingConfig = {
@@ -48,22 +36,21 @@ export type YamlForwardingConfig = {
   target: string;
   /** Optional HTTP method restriction. Default: all supported methods. */
   methods?: string[];
-  /** Optional request transformation applied before forwarding. */
-  request?: YamlRequestTransformConfig;
-  /** Optional response transformation applied after forwarding. */
-  response?: YamlResponseTransformConfig;
+  /** Optional request forwarding settings. */
+  request?: YamlRequestForwardingConfig;
+  /** Optional response forwarding settings. */
+  response?: YamlResponseForwardingConfig;
   /** Upstream timeout in milliseconds. Default: 30000. */
   timeout?: number;
 };
 
-export type YamlTransformContext = {
+export type YamlValueContext = {
   requestId: string;
   startedAt: string;
-  request: CloudConnectorHttpRequest;
   env: Record<string, string>;
 };
 
-type HeaderTransformConfig = {
+type HeaderForwardingConfig = {
   add?: Record<string, string>;
   remove?: string[];
   set?: Record<string, string>;
@@ -147,15 +134,14 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       url: inboundUrl.pathname + inboundUrl.search,
       headers: { ...request.headers },
     };
-    const context: YamlTransformContext = {
+    const context: YamlValueContext = {
       requestId: frame.requestId,
       startedAt: new Date().toISOString(),
-      request: forwardedRequest,
       env: this.env,
     };
 
     if (this.forwarding.request) {
-      forwardedRequest = applyYamlRequestTransform(
+      forwardedRequest = applyYamlRequestForwardingConfig(
         this.forwarding.request,
         forwardedRequest,
         context,
@@ -222,10 +208,10 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       body: (await upstreamResponse.text()) || null,
     };
     if (this.forwarding.response) {
-      response = applyYamlResponseTransform(
+      response = applyYamlResponseForwardingConfig(
         this.forwarding.response,
         response,
-        { ...context, request: forwardedRequest },
+        context,
       );
     }
     return response;
@@ -269,77 +255,54 @@ export function parseYamlForwardingConfig(
   return value;
 }
 
-export function applyYamlRequestTransform(
-  config: YamlRequestTransformConfig,
+export function applyYamlRequestForwardingConfig(
+  config: YamlRequestForwardingConfig,
   request: CloudConnectorHttpRequest,
-  context: YamlTransformContext,
+  context: YamlValueContext,
 ): CloudConnectorHttpRequest {
   const result = { ...request, headers: { ...request.headers } };
-  const evalContext: YamlTransformContext = { ...context, request };
-
-  if (
-    config.reject?.if &&
-    evaluateCondition(config.reject.if, evalContext)
-  ) {
-    throw new RuntimeError(
-      config.reject.code ?? "REQUEST_REJECTED",
-      interpolate(
-        config.reject.message ?? "Request rejected by YAML configuration",
-        evalContext,
-      ),
-    );
-  }
   if (config.headers) {
-    result.headers = applyHeaderTransforms(
-      result.headers ?? {},
-      config.headers,
-      evalContext,
-    );
-  }
-  if (config.url) {
-    result.url = applyUrlTransforms(result.url, config.url, evalContext);
-  }
-  if (config.body?.set !== undefined) {
-    result.body = interpolate(config.body.set, evalContext);
-  }
-  return result;
-}
-
-export function applyYamlResponseTransform(
-  config: YamlResponseTransformConfig,
-  response: CloudConnectorHttpResponse,
-  context: YamlTransformContext,
-): CloudConnectorHttpResponse {
-  const result = { ...response, headers: { ...response.headers } };
-  if (config.headers) {
-    result.headers = applyHeaderTransforms(
+    result.headers = applyHeaderConfig(
       result.headers ?? {},
       config.headers,
       context,
     );
   }
-  if (config.body?.set !== undefined) {
-    result.body = interpolate(config.body.set, context);
+  if (config.pathPrefix) {
+    result.url = applyPathPrefix(result.url, config.pathPrefix);
   }
-  if (config.statusCode?.set !== undefined) {
-    result.statusCode = config.statusCode.set;
+  return result;
+}
+
+export function applyYamlResponseForwardingConfig(
+  config: YamlResponseForwardingConfig,
+  response: CloudConnectorHttpResponse,
+  context: YamlValueContext,
+): CloudConnectorHttpResponse {
+  const result = { ...response, headers: { ...response.headers } };
+  if (config.headers) {
+    result.headers = applyHeaderConfig(
+      result.headers ?? {},
+      config.headers,
+      context,
+    );
   }
   return result;
 }
 
 export function interpolate(
   template: string,
-  context: YamlTransformContext,
+  context: YamlValueContext,
 ): string {
   return template.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, expression: string) => {
     return resolveExpression(expression.trim(), context);
   });
 }
 
-function applyHeaderTransforms(
+function applyHeaderConfig(
   headers: NonNullable<CloudConnectorHttpRequest["headers"]>,
-  config: HeaderTransformConfig,
-  context: YamlTransformContext,
+  config: HeaderForwardingConfig,
+  context: YamlValueContext,
 ): NonNullable<CloudConnectorHttpRequest["headers"]> {
   const result = { ...headers };
   for (const name of config.remove ?? []) {
@@ -357,28 +320,18 @@ function applyHeaderTransforms(
   return result;
 }
 
-function applyUrlTransforms(
+function applyPathPrefix(
   url: string,
-  config: NonNullable<YamlRequestTransformConfig["url"]>,
-  context: YamlTransformContext,
+  prefix: string,
 ): string {
-  let result = url;
-  if (config.removePrefix) {
-    const prefix = interpolate(config.removePrefix, context);
-    if (result.startsWith(prefix)) result = result.slice(prefix.length);
-  }
-  if (config.rewrite) {
-    result = interpolate(config.rewrite, context);
-  } else {
-    if (config.prefix) result = interpolate(config.prefix, context) + result;
-    if (config.suffix) result += interpolate(config.suffix, context);
-  }
-  return result;
+  const parsed = new URL(url, "http://cloud-connector.invalid");
+  const normalizedPrefix = prefix === "/" ? "" : prefix.replace(/\/$/, "");
+  return `${normalizedPrefix}${parsed.pathname}${parsed.search}`;
 }
 
 function resolveExpression(
   expression: string,
-  context: YamlTransformContext,
+  context: YamlValueContext,
 ): string {
   const parts = expression.split(".");
   if (parts[0] === "env" && parts.length === 2) {
@@ -388,42 +341,7 @@ function resolveExpression(
     if (parts[1] === "requestId") return context.requestId;
     if (parts[1] === "startedAt") return context.startedAt;
   }
-  if (parts[0] === "request") {
-    if (parts[1] === "url") return context.request.url;
-    if (parts[1] === "method") return context.request.method;
-    if (parts[1] === "body") return context.request.body ?? "";
-  }
   return "";
-}
-
-function evaluateCondition(
-  condition: string,
-  context: YamlTransformContext,
-): boolean {
-  for (
-    const [pattern, predicate] of [
-      [
-        /^(.+?)\s+contains\s+"([^"]+)"$/,
-        (a: string, b: string) => a.includes(b),
-      ],
-      [/^(.+?)\s*==\s*"([^"]*)"$/, (a: string, b: string) => a === b],
-      [/^(.+?)\s*!=\s*"([^"]*)"$/, (a: string, b: string) => a !== b],
-      [
-        /^(.+?)\s+startsWith\s+"([^"]+)"$/,
-        (a: string, b: string) => a.startsWith(b),
-      ],
-      [
-        /^(.+?)\s+endsWith\s+"([^"]+)"$/,
-        (a: string, b: string) => a.endsWith(b),
-      ],
-    ] as const
-  ) {
-    const match = condition.match(pattern);
-    if (match) {
-      return predicate(resolveExpression(match[1].trim(), context), match[2]);
-    }
-  }
-  return false;
 }
 
 async function readRequiredConfig(path: string): Promise<string> {
@@ -527,64 +445,42 @@ function validateForwardingConfig(
   ) {
     throw new Error("timeout must be an integer between 1000 and 300000");
   }
-  if (config.request !== undefined) validateRequestTransform(config.request);
-  if (config.response !== undefined) validateResponseTransform(config.response);
+  if (config.request !== undefined) validateRequestConfig(config.request);
+  if (config.response !== undefined) validateResponseConfig(config.response);
 }
 
-function validateRequestTransform(value: unknown): void {
+function validateRequestConfig(value: unknown): void {
   const config = requireRecord(value, "request");
-  rejectUnknown(config, ["headers", "url", "body", "reject"], "request");
+  rejectUnknown(config, ["headers", "pathPrefix"], "request");
   if (config.headers !== undefined) {
-    validateHeaderTransform(config.headers, "request.headers");
+    validateHeaderConfig(config.headers, "request.headers");
   }
-  if (config.url !== undefined) {
-    const url = requireRecord(config.url, "request.url");
-    rejectUnknown(
-      url,
-      ["prefix", "suffix", "rewrite", "removePrefix"],
-      "request.url",
-    );
-    for (const [name, entry] of Object.entries(url)) {
-      requireString(entry, `request.url.${name}`);
-    }
-  }
-  if (config.body !== undefined) {
-    validateStringPropertyObject(config.body, "request.body", ["set"]);
-  }
-  if (config.reject !== undefined) {
-    const reject = requireRecord(config.reject, "request.reject");
-    rejectUnknown(reject, ["if", "code", "message"], "request.reject");
-    for (const [name, entry] of Object.entries(reject)) {
-      requireString(entry, `request.reject.${name}`);
-    }
-  }
-}
-
-function validateResponseTransform(value: unknown): void {
-  const config = requireRecord(value, "response");
-  rejectUnknown(config, ["headers", "body", "statusCode"], "response");
-  if (config.headers !== undefined) {
-    validateHeaderTransform(config.headers, "response.headers");
-  }
-  if (config.body !== undefined) {
-    validateStringPropertyObject(config.body, "response.body", ["set"]);
-  }
-  if (config.statusCode !== undefined) {
-    const status = requireRecord(config.statusCode, "response.statusCode");
-    rejectUnknown(status, ["set"], "response.statusCode");
+  if (config.pathPrefix !== undefined) {
+    requireString(config.pathPrefix, "request.pathPrefix");
     if (
-      status.set !== undefined &&
-      (typeof status.set !== "number" || !Number.isInteger(status.set) ||
-        status.set < 100 || status.set > 599)
+      !config.pathPrefix.startsWith("/") ||
+      config.pathPrefix.startsWith("//") ||
+      config.pathPrefix.includes("?") ||
+      config.pathPrefix.includes("#") ||
+      config.pathPrefix.includes("{{") ||
+      config.pathPrefix.includes("}}")
     ) {
       throw new Error(
-        "response.statusCode.set must be an integer between 100 and 599",
+        "request.pathPrefix must be an absolute path without query or fragment",
       );
     }
   }
 }
 
-function validateHeaderTransform(value: unknown, path: string): void {
+function validateResponseConfig(value: unknown): void {
+  const config = requireRecord(value, "response");
+  rejectUnknown(config, ["headers"], "response");
+  if (config.headers !== undefined) {
+    validateHeaderConfig(config.headers, "response.headers");
+  }
+}
+
+function validateHeaderConfig(value: unknown, path: string): void {
   const config = requireRecord(value, path);
   rejectUnknown(config, ["add", "remove", "set"], path);
   for (const name of ["add", "set"] as const) {
@@ -592,6 +488,7 @@ function validateHeaderTransform(value: unknown, path: string): void {
     const entries = requireRecord(config[name], `${path}.${name}`);
     for (const [key, entry] of Object.entries(entries)) {
       requireString(entry, `${path}.${name}.${key}`);
+      validateHeaderTemplate(entry, `${path}.${name}.${key}`);
     }
   }
   if (
@@ -600,18 +497,6 @@ function validateHeaderTransform(value: unknown, path: string): void {
       config.remove.some((entry) => typeof entry !== "string"))
   ) {
     throw new Error(`${path}.remove must be an array of strings`);
-  }
-}
-
-function validateStringPropertyObject(
-  value: unknown,
-  path: string,
-  properties: string[],
-): void {
-  const config = requireRecord(value, path);
-  rejectUnknown(config, properties, path);
-  for (const [name, entry] of Object.entries(config)) {
-    requireString(entry, `${path}.${name}`);
   }
 }
 
@@ -644,16 +529,41 @@ function requireNonEmptyString(
 }
 
 function validateTargetTemplate(target: string): void {
-  const expressions = target.matchAll(/\{\{\s*([^}]+)\s*\}\}/g);
-  for (const match of expressions) {
-    if (!/^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(match[1].trim())) {
-      throw new Error(
-        "target interpolation supports only {{ env.NAME }} values",
-      );
-    }
-  }
+  validateTemplateExpressions(
+    target,
+    "target",
+    (expression) => /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
+  );
   if (!target.includes("{{")) {
     parseTargetUrl(target, "/", "configuration");
+  }
+}
+
+function validateHeaderTemplate(template: string, path: string): void {
+  validateTemplateExpressions(
+    template,
+    path,
+    (expression) =>
+      /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ||
+      expression === "context.requestId" ||
+      expression === "context.startedAt",
+  );
+}
+
+function validateTemplateExpressions(
+  template: string,
+  path: string,
+  allows: (expression: string) => boolean,
+): void {
+  const pattern = /\{\{\s*([^}]+)\s*\}\}/g;
+  for (const match of template.matchAll(pattern)) {
+    if (!allows(match[1].trim())) {
+      throw new Error(`${path} contains an unsupported interpolation value`);
+    }
+  }
+  const remaining = template.replace(pattern, "");
+  if (remaining.includes("{{") || remaining.includes("}}")) {
+    throw new Error(`${path} contains malformed interpolation syntax`);
   }
 }
 

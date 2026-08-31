@@ -39,8 +39,8 @@ Keep `.env` outside version control and restrict it to the deployment account.
 ## Configure forwarding
 
 `forwarding.yml` is the only customer-controlled behavior file. It selects one
-target for every workload request and may apply the documented declarative
-transforms.
+target for every workload request and may configure forwarding headers and one
+static path prefix.
 
 ```yaml
 target: "{{ env.INTERNAL_API_URL }}"
@@ -50,8 +50,7 @@ request:
   headers:
     set:
       authorization: "Bearer {{ env.INTERNAL_API_TOKEN }}"
-  url:
-    prefix: /api
+  pathPrefix: /api
 response:
   headers:
     remove: [server, x-powered-by]
@@ -60,6 +59,9 @@ response:
 The connector never scans a source directory and never loads TypeScript,
 JavaScript, Python, or another executable extension. An inbound absolute URL
 cannot override the target origin from YAML.
+
+Conditions, body changes, response status changes, arbitrary URL rewrites,
+multiple targets, and request-derived target selection are not supported.
 
 The compose file mounts the configuration read-only:
 
@@ -144,7 +146,7 @@ WantedBy=multi-user.target
 | Container restarts immediately | YAML mount, `CLOUD_CONNECTOR_FORWARDING_CONFIG`, YAML syntax, required `target` |
 | `OUTBOUND_URL_NOT_ALLOWED`     | JSON syntax, regex anchoring, target port/path, redirect destination            |
 | `/ready` returns 503           | cloud URL, credentials, DNS, firewall, TLS, WebSocket path                      |
-| Upstream receives wrong path   | `request.url` transforms in `forwarding.yml`                                    |
+| Upstream receives wrong path   | `request.pathPrefix` in `forwarding.yml`                                        |
 | `METHOD_NOT_ALLOWED`           | `methods` list in `forwarding.yml`                                              |
 | Upstream timeout               | YAML `timeout`, target availability, network policy                             |
 
