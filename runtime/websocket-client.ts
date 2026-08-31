@@ -6,6 +6,7 @@ import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
+import type { Fetcher } from "./outbound-url-policy.ts";
 import { createHeartbeatFrame, serializeFrame } from "./protocol.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
 
@@ -29,6 +30,7 @@ export async function runCloudWebSocketClient(
   signal: AbortSignal,
   status: RuntimeStatus = createRuntimeStatus(),
   logger: RuntimeLogger = createLogger(config.logLevel),
+  controlPlaneFetch: Fetcher = globalThis.fetch,
 ): Promise<void> {
   if (!config.websocketUrl) {
     return;
@@ -48,6 +50,7 @@ export async function runCloudWebSocketClient(
         signal,
         status,
         logger,
+        controlPlaneFetch,
       );
       attempt = outcome.stableOpen ? 0 : attempt + 1;
     } catch (error) {
@@ -109,9 +112,10 @@ async function openWebSocket(
   signal: AbortSignal,
   status: RuntimeStatus,
   logger: RuntimeLogger,
+  controlPlaneFetch: Fetcher,
 ): Promise<OpenOutcome> {
   const accessToken = await generateAccessToken(
-    getAccessTokenOptions(config, signal),
+    getAccessTokenOptions(config, signal, controlPlaneFetch),
   );
 
   return new Promise<OpenOutcome>((resolve, reject) => {
@@ -259,12 +263,13 @@ async function openWebSocket(
 function getAccessTokenOptions(
   config: ConnectorConfig,
   signal: AbortSignal,
+  fetcher: Fetcher,
 ): AccessTokenOptions {
   if (
     !config.cloudConnectorHost || !config.cloudConnectorClientId ||
     !config.cloudConnectorClientSecret
   ) {
-    throw new Error("Cloud connector authentication is not configured.");
+    throw new Error("Cloud Connector authentication is not configured.");
   }
 
   return {
@@ -273,6 +278,7 @@ function getAccessTokenOptions(
     clientSecret: config.cloudConnectorClientSecret,
     timeoutMs: config.tokenFetchTimeoutMs,
     signal,
+    fetcher,
   };
 }
 

@@ -57,6 +57,8 @@ export const ErrorCodes = {
     SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
     /** Request rejected by policy */
     REQUEST_REJECTED: "REQUEST_REJECTED",
+    /** Outbound URL is not permitted by the configured allowlist */
+    OUTBOUND_URL_NOT_ALLOWED: "OUTBOUND_URL_NOT_ALLOWED",
     /** Configuration error */
     CONFIGURATION_ERROR: "CONFIGURATION_ERROR",
 } as const;

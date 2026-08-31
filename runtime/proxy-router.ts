@@ -3,8 +3,9 @@
  *
  * Transparent pass-through used when no functions are present. Each inbound
  * request frame already carries the absolute target URL it should reach inside
- * the customer network, so the connector simply forwards the request 1:1 and
- * returns whatever the upstream responds. No configuration required.
+ * the customer network, so the Cloud Connector simply forwards the request 1:1 and
+ * returns whatever the upstream responds. Target URLs are still subject to the
+ * configured outbound URL allowlist.
  *
  * @module
  */
@@ -16,17 +17,21 @@ import type {
 } from "./generated/models.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
+import type { Fetcher } from "./outbound-url-policy.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
 export type HttpProxyExecutorOptions = {
     logger?: RuntimeLogger;
+    fetcher?: Fetcher;
 };
 
 export class HttpProxyExecutor implements ProtocolExecutor {
     private readonly logger: RuntimeLogger;
+    private readonly fetcher: Fetcher;
 
     constructor(options: HttpProxyExecutorOptions = {}) {
         this.logger = options.logger ?? createLogger();
+        this.fetcher = options.fetcher ?? globalThis.fetch;
     }
 
     async execute(
@@ -57,7 +62,7 @@ export class HttpProxyExecutor implements ProtocolExecutor {
 
         this.logger.info(`Proxying ${request.method} ${targetUrl.href}`);
 
-        const response = await fetch(targetUrl, {
+        const response = await this.fetcher(targetUrl, {
             method: request.method,
             headers,
             body: request.method === "GET" || request.method === "HEAD"

@@ -1,7 +1,7 @@
 /**
  * Health endpoint for AD User Export.
  *
- * GET /health - Checks whether the connector and bridge are reachable.
+ * GET /health - Checks whether the Cloud Connector and bridge are reachable.
  */
 
 import { defineHttp } from "@serviceware/cloud-connector-sdk";

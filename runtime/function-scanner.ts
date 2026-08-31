@@ -17,6 +17,7 @@ import { HTTP_METHODS, isHttpRouteDefinition } from "../sdk/http.ts";
 import type { HttpMethod } from "../sdk/types.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
+import type { Fetcher } from "./outbound-url-policy.ts";
 import {
     createYamlFunctionHandler,
     parseYamlFunctionConfig,
@@ -82,13 +83,16 @@ export class HttpFunctionScanner {
     private routes: RegisteredHttpRoute[] = [];
     private logger: RuntimeLogger;
     private env: Record<string, string>;
+    private fetcher: Fetcher;
 
     constructor(options?: {
         logger?: RuntimeLogger;
         env?: Record<string, string>;
+        fetcher?: Fetcher;
     }) {
         this.logger = options?.logger ?? createLogger();
         this.env = options?.env ?? Deno.env.toObject();
+        this.fetcher = options?.fetcher ?? globalThis.fetch;
     }
 
     /**
@@ -325,7 +329,11 @@ export class HttpFunctionScanner {
             }
 
             // Create the YAML function handler
-            const yamlHandler = createYamlFunctionHandler(config, filePath);
+            const yamlHandler = createYamlFunctionHandler(
+                config,
+                filePath,
+                this.fetcher,
+            );
 
             const wrappedHandler: HttpHandler = async (
                 ctx: HttpContext,

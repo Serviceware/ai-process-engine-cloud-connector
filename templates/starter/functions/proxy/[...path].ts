@@ -28,7 +28,7 @@ export default defineHttp({
 /**
  * Forwards the request to the internal API.
  */
-async function proxyRequest(ctx: HttpContext): Promise<Response> {
+function proxyRequest(ctx: HttpContext): Promise<Response> {
     const internalUrl = getInternalUrl(ctx.env);
     return ctx.proxy
         .to(internalUrl)

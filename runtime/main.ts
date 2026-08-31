@@ -5,6 +5,10 @@ import { watchFunctionsDirectory } from "./function-watcher.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import {
+    fetchWithoutOutboundUrlPolicy,
+    installOutboundUrlPolicy,
+} from "./outbound-url-policy.ts";
+import {
     createReloadableProtocolExecutor,
     type ReloadableProtocolExecutor,
 } from "./reloadable-request-executor.ts";
@@ -19,8 +23,8 @@ const EX_CONFIG = 78;
 /**
  * Select the request executor. Functions are opt-in: when the functions
  * directory has at least one route, run in function mode; otherwise the
- * connector is a transparent proxy that forwards each request to the absolute
- * URL it carries.
+ * Cloud Connector is a transparent proxy that forwards each request to the
+ * absolute URL it carries.
  */
 export function createProtocolExecutor(
     config: ConnectorConfig,
@@ -81,7 +85,7 @@ export function createHandler(
         if (url.pathname === "/ready") {
             const websocketConfigured = config.websocketUrl !== undefined;
             const websocketConnected = status.connectionState === "open";
-            // With no WS configured the connector is a pure HTTP service => ready.
+            // With no WS configured the Cloud Connector is a pure HTTP service => ready.
             const ready = !websocketConfigured || websocketConnected;
             return Response.json(
                 {
@@ -207,6 +211,12 @@ if (import.meta.main) {
     try {
         config = loadConfig();
         logger = createLogger(config.logLevel);
+        installOutboundUrlPolicy(config.outboundUrlAllowlist);
+        logger.info(
+            config.outboundUrlAllowlist.length === 0
+                ? "Outbound URL allowlist is empty; all workload HTTP requests are blocked"
+                : `Outbound URL allowlist active with ${config.outboundUrlAllowlist.length} pattern(s)`,
+        );
     } catch (error) {
         console.error(
             "[cloud-connector] FATAL: invalid configuration:",
@@ -291,6 +301,7 @@ if (import.meta.main) {
                         abortController.signal,
                         status,
                         logger,
+                        fetchWithoutOutboundUrlPolicy,
                     ),
                 abortController.signal,
                 logger,

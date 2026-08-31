@@ -7,6 +7,10 @@ import {
 } from "./function-scanner.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
+import {
+    createAllowlistedFetch,
+    type Fetcher,
+} from "./outbound-url-policy.ts";
 import { HttpProxyExecutor } from "./proxy-router.ts";
 
 export type RoutingMode = "http-functions" | "http-proxy";
@@ -21,6 +25,7 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
     private readonly config: ConnectorConfig;
     private readonly env: Record<string, string>;
     private readonly logger: RuntimeLogger;
+    private readonly fetcher: Fetcher;
     private delegate: ProtocolExecutor;
     private currentMode: RoutingMode = "http-proxy";
     private currentRoutes: readonly RegisteredHttpRoute[] = [];
@@ -29,7 +34,13 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
         this.config = options.config;
         this.env = options.env ?? Deno.env.toObject();
         this.logger = options.logger ?? createLogger(this.config.logLevel);
-        this.delegate = new HttpProxyExecutor({ logger: this.logger });
+        this.fetcher = createAllowlistedFetch(
+            this.config.outboundUrlAllowlist,
+        );
+        this.delegate = new HttpProxyExecutor({
+            fetcher: this.fetcher,
+            logger: this.logger,
+        });
     }
 
     get mode(): RoutingMode {
@@ -47,6 +58,7 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
 
         const scanner = new HttpFunctionScanner({
             env: this.env,
+            fetcher: this.fetcher,
             logger: this.logger,
         });
         await scanner.scan(this.config.functionsDir);
@@ -54,6 +66,7 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
         if (scanner.routeCount > 0) {
             this.delegate = new HttpFunctionRouter({
                 env: this.env,
+                fetcher: this.fetcher,
                 logger: this.logger,
                 scanner,
             });
@@ -65,7 +78,10 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
             return;
         }
 
-        this.delegate = new HttpProxyExecutor({ logger: this.logger });
+        this.delegate = new HttpProxyExecutor({
+            fetcher: this.fetcher,
+            logger: this.logger,
+        });
         this.currentMode = "http-proxy";
         this.currentRoutes = [];
         this.logger.warn(

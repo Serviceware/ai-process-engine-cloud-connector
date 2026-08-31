@@ -93,6 +93,10 @@ curl http://localhost:8080/health
 curl http://localhost:8080/tickets
 ```
 
+The supplied `.env.example` explicitly permits only
+`http://ticketing-api:3000` through `OUTBOUND_URL_ALLOWLIST`; every other
+workload URL remains blocked.
+
 ## Comparison: YAML vs TypeScript Functions
 
 | Feature                  | YAML Function  | TypeScript Function |

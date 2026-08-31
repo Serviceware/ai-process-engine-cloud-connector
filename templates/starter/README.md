@@ -1,7 +1,7 @@
 # Cloud Connector – Starter Template
 
 This template contains everything you need for integrating the Serviceware Cloud
-Connector with the new function-based approach.
+with the Cloud Connector and the new function-based approach.
 
 ## Quick Start
 
@@ -20,6 +20,10 @@ cp .env.example .env
 # Edit .env file
 nano .env  # or your preferred editor
 ```
+
+Outbound workload requests are denied until you add anchored URL regular
+expressions to `OUTBOUND_URL_ALLOWLIST`. Keep `[]` when the functions do not
+need network access; use `[".*"]` only for an intentional unrestricted setup.
 
 ### 3. Customize Functions
 

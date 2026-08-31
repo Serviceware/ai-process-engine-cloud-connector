@@ -1,7 +1,7 @@
 /**
  * Health Endpoint
  *
- * GET /health - Returns connector status.
+ * GET /health - Returns Cloud Connector status.
  */
 
 import { http } from "@serviceware/cloud-connector-sdk";

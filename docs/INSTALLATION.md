@@ -1,7 +1,7 @@
 # Cloud Connector – Installation Guide
 
-This guide describes step by step how to install and configure the Serviceware
-Cloud Connector in your network.
+This guide describes step by step how to install and configure the Edge
+Connector in your network.
 
 ---
 
@@ -29,7 +29,7 @@ your internal systems.
 
 ```
 ┌─────────────────────┐          ┌────────────────────────────────┐
-│   Serviceware Cloud │          │      Your Network (DMZ)        │
+│  Serviceware Cloud   │          │      Your Network (DMZ)        │
 │                     │          │                                │
 │   ┌─────────────┐   │  WSS:443 │   ┌──────────────────────┐    │
 │   │   Gateway   │◄──┼──────────┼───│   Cloud Connector    │    │
@@ -101,6 +101,11 @@ connect:
 | REST APIs               | variable     |
 | Databases               | variable     |
 
+Network reachability alone does not grant access. The Cloud Connector blocks all
+workload HTTP URLs until they are explicitly permitted by
+`OUTBOUND_URL_ALLOWLIST`. The Serviceware Cloud OAuth/WebSocket control-plane connection
+is not part of this workload allowlist.
+
 ### Proxy Support
 
 If your network requires an HTTP proxy, set:
@@ -169,7 +174,7 @@ nano .env  # or your preferred editor
 **Required fields:**
 
 ```env
-# WebSocket URL to Serviceware Cloud (provided by Serviceware)
+# WebSocket URL to the Serviceware Cloud (provided by Serviceware)
 SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=your-tenant
 ```
 
@@ -179,6 +184,10 @@ SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=your-tenant
 # For proxy function to internal APIs
 INTERNAL_API_URL=http://your-internal-api:3000
 INTERNAL_API_TOKEN=your-secret-api-token
+
+# Required for every workload target. JSON array of regular expressions.
+# Empty or omitted means deny all; [".*"] explicitly permits every URL.
+OUTBOUND_URL_ALLOWLIST=["^http://your-internal-api:3000(?:/|$)"]
 
 # For Active Directory integration
 AD_SERVER=ldap://dc01.corp.example.com
@@ -418,7 +427,7 @@ For automatic start on system boot:
 ```bash
 # /etc/systemd/system/cloud-connector.service
 [Unit]
-Description=Serviceware Cloud Connector
+Description=Cloud Connector
 Requires=docker.service
 After=docker.service
 
@@ -472,7 +481,7 @@ docker-compose up -d
 
 ### Connection Problems
 
-**Problem:** Connector does not connect to the cloud
+**Problem:** Cloud Connector does not connect to the Serviceware Cloud
 
 ```bash
 # Test WebSocket connection
@@ -550,7 +559,7 @@ support ticket in the Serviceware Portal.
 ```yaml
 services:
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:latest
+    image: ghcr.io/serviceware/cloud-connector:3.0.0
     container_name: serviceware-cloud-connector
     restart: unless-stopped
     ports:
@@ -558,6 +567,7 @@ services:
     environment:
       - CLOUD_CONNECTOR_WS_URL=${SERVICEWARE_WS_URL}
       - CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions
+      - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
       # Your additional environment variables here
     volumes:
       - ./functions:/functions:ro
@@ -579,12 +589,15 @@ services:
 ## Appendix: .env.example
 
 ```env
-# Required: WebSocket URL to Serviceware Cloud
+# Required: WebSocket URL to the Serviceware Cloud
 SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=your-tenant
 
 # Optional: Internal API connection
 INTERNAL_API_URL=http://your-internal-api:3000
 INTERNAL_API_TOKEN=your-secret-token
+
+# Default deny: add one anchored regex per permitted HTTP target
+OUTBOUND_URL_ALLOWLIST=[]
 
 # Optional: Active Directory
 AD_SERVER=ldap://dc01.corp.example.com

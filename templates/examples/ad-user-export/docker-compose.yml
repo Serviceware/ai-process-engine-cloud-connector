@@ -11,7 +11,7 @@ services:
   # Connects to the Serviceware Cloud and runs functions
   # ==========================================================================
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:latest
+    image: ghcr.io/serviceware/cloud-connector:3.0.0
     container_name: ad-cloud-connector
     restart: always
     ports:
@@ -23,6 +23,7 @@ services:
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
       - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
       - CLOUD_CONNECTOR_LOG_LEVEL=${SERVICEWARE_LOG_LEVEL:-info}
+      - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
 
       # Function mode: path to the functions directory
       - CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions

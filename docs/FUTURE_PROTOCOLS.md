@@ -1,6 +1,6 @@
 # Future Protocol Families
 
-The connector is currently HTTP-only at the wire, runtime, SDK, and declarative
+The Cloud Connector is currently HTTP-only at the wire, runtime, SDK, and declarative
 function levels. IMAP and SMTP are planned protocol families, but they are not
 implemented yet. Future support must be added as real protocol contracts instead
 of being tunneled through `HttpContext`, HTTP route files, or HTTP proxy mode.

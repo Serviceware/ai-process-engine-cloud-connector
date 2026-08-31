@@ -115,9 +115,19 @@
           "jsr:@std/assert@1"
         ]
       },
+      "templates/examples/ad-user-export": {
+        "dependencies": [
+          "jsr:@serviceware/cloud-connector-sdk@3"
+        ]
+      },
+      "templates/examples/erp-integration": {
+        "dependencies": [
+          "jsr:@serviceware/cloud-connector-sdk@3"
+        ]
+      },
       "templates/starter": {
         "dependencies": [
-          "jsr:@serviceware/cloud-connector-sdk@*"
+          "jsr:@serviceware/cloud-connector-sdk@3"
         ]
       }
     }

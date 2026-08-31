@@ -22,5 +22,9 @@ Deno.test("ErrorCodes exposes stable public SDK error code constants", () => {
     assertEquals(ErrorCodes.RATE_LIMITED, "RATE_LIMITED");
     assertEquals(ErrorCodes.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
     assertEquals(ErrorCodes.REQUEST_REJECTED, "REQUEST_REJECTED");
+    assertEquals(
+        ErrorCodes.OUTBOUND_URL_NOT_ALLOWED,
+        "OUTBOUND_URL_NOT_ALLOWED",
+    );
     assertEquals(ErrorCodes.CONFIGURATION_ERROR, "CONFIGURATION_ERROR");
 });

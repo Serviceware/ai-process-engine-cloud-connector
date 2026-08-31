@@ -490,6 +490,9 @@ export interface CreateHttpContextOptions {
      * Optional background-task registration hook.
      */
     waitUntil?: (task: Promise<unknown>) => void;
+
+    /** Runtime-provided outbound HTTP implementation. */
+    fetcher?: typeof globalThis.fetch;
 }
 
 /**
@@ -517,11 +520,14 @@ export function createHttpContext(
     context.startedAt = options.startedAt;
     context.log = log;
     context.upstream = (baseUrl) =>
-        new HttpUpstreamBuilder(baseUrl).header("x-request-id", options.requestId);
+        new HttpUpstreamBuilder(baseUrl, options.fetcher).header(
+            "x-request-id",
+            options.requestId,
+        );
     context.waitUntil = options.waitUntil ?? ((task) => {
         void task.catch((error) => log.error("Background task failed", error));
     });
-    context.proxy = new HttpProxyBuilder(context);
+    context.proxy = new HttpProxyBuilder(context, options.fetcher);
 
     return context;
 }
@@ -1509,7 +1515,10 @@ export class HttpUpstreamBuilder {
      *
      * @param baseUrl - Base URL used to resolve request paths.
      */
-    constructor(private readonly baseUrl: string | URL) { }
+    constructor(
+        private readonly baseUrl: string | URL,
+        private readonly fetcher: typeof globalThis.fetch = globalThis.fetch,
+    ) { }
 
     /**
      * Sets the request path, interpolating `{name}` placeholders from the params
@@ -1712,7 +1721,7 @@ export class HttpUpstreamBuilder {
             url.searchParams.append(name, value);
         }
 
-        return fetch(url, {
+        return this.fetcher(url, {
             method,
             headers: this.headers,
             body: method === "GET" || method === "HEAD" ? undefined : this.bodyValue,
@@ -1738,7 +1747,10 @@ export class HttpProxyBuilder {
      *
      * @param ctx - Current HTTP request context.
      */
-    constructor(private readonly ctx: HttpContext) { }
+    constructor(
+        private readonly ctx: HttpContext,
+        private readonly fetcher: typeof globalThis.fetch = globalThis.fetch,
+    ) { }
 
     /**
      * Sets the target base URL for the proxied request.
@@ -1861,7 +1873,7 @@ export class HttpProxyBuilder {
         }
 
         const targetUrl = new URL(path + this.ctx.req.search, this.targetBaseUrl);
-        const response = await fetch(targetUrl, {
+        const response = await this.fetcher(targetUrl, {
             method: this.ctx.req.method,
             headers,
             body: this.ctx.req.method === "GET" || this.ctx.req.method === "HEAD"

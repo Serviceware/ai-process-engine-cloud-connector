@@ -3,6 +3,7 @@ import type {
     CloudConnectorHttpRequest,
     CloudConnectorHttpResponse,
 } from "./generated/models.ts";
+import type { Fetcher } from "./outbound-url-policy.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
 export type YamlRequestTransformConfig = {
@@ -306,6 +307,7 @@ function evaluateCondition(
 export function createYamlFunctionHandler(
     config: YamlFunctionConfig,
     filePath: string,
+    fetcher: Fetcher = globalThis.fetch,
 ): (ctx: YamlFunctionContext) => Promise<Response> {
     return async (ctx: YamlFunctionContext): Promise<Response> => {
         const internalHeaders: Record<string, string[]> = {};
@@ -364,7 +366,7 @@ export function createYamlFunctionHandler(
         const timeout = config.timeout ?? 30000;
         let upstreamResponse: Response;
         try {
-            upstreamResponse = await fetch(targetUrl.href, {
+            upstreamResponse = await fetcher(targetUrl.href, {
                 method: internalRequest.method,
                 headers: outgoingHeaders,
                 body: internalRequest.body ?? undefined,

@@ -22,6 +22,7 @@ const baseConfig: ConnectorConfig = {
     reconnectJitterRatio: 0,
     livenessStaleMs: 60_000,
     logLevel: "error",
+  outboundUrlAllowlist: [],
 };
 
 const cloudAuth = {

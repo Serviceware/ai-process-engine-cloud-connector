@@ -8,7 +8,10 @@ systems.
 > **📖 For Customers:** See the [Installation Guide](docs/INSTALLATION.md) for
 > step-by-step instructions.
 
-> **Protocol roadmap:** The connector is HTTP-only today. See
+> **Release information:** See the [changelog](CHANGELOG.md). Maintainers can
+> use the [release guide](docs/RELEASE.md).
+
+> **Protocol roadmap:** The Cloud Connector is HTTP-only today. See
 > [Future Protocol Families](docs/FUTURE_PROTOCOLS.md) for the extension points
 > required before IMAP or SMTP support is implemented.
 
@@ -19,9 +22,10 @@ Functions can be implemented in TypeScript for custom logic or YAML for
 declarative proxy scenarios.
 
 Functions are **opt-in**. If the functions directory is missing or empty, the
-connector automatically runs in **proxy mode**: it forwards each incoming
+Cloud Connector automatically runs in **proxy mode**: it forwards each incoming
 request 1:1 to the absolute target URL the request carries and returns the
-upstream response — a transparent tunnel, no configuration required.
+upstream response. No route configuration is required, but every target must be
+explicitly permitted by `OUTBOUND_URL_ALLOWLIST`.
 
 The runtime watches the functions directory. When files are added, changed, or
 removed, routes are recomposed in-process and the active routing mode switches
@@ -54,7 +58,7 @@ In HTTP Function Mode, you define API endpoints as TypeScript files in a
 │                      Customer Network (DMZ)           │         │
 │                                                       ▼         │
 │   ┌───────────────────────────────────────────────────────────┐ │
-│   │                    Cloud Connector                        │ │
+│   │                    Cloud Connector                       │ │
 │   │                    (Function Mode)                        │ │
 │   │                                                           │ │
 │   │   functions/                                              │ │
@@ -165,8 +169,9 @@ docker run -d \
   -e CLOUD_CONNECTOR_CLIENT_ID=your-client-id \
   -e CLOUD_CONNECTOR_CLIENT_SECRET=your-client-secret \
   -e CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions \
+  -e OUTBOUND_URL_ALLOWLIST='[]' \
   -v /path/to/functions:/functions:ro \
-  ghcr.io/serviceware/cloud-connector:latest
+  ghcr.io/serviceware/cloud-connector:3.0.0
 ```
 
 ---
@@ -373,16 +378,47 @@ response:
 | `CLOUD_CONNECTOR_FUNCTIONS_DIR`              | Path to the functions directory                               |
 | `CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS` | Heartbeat interval (default: `30`)                            |
 | `CLOUD_CONNECTOR_LOG_LEVEL`                  | Log level: `error`, `warn`, `info`, `debug` (default: `info`) |
+| `OUTBOUND_URL_ALLOWLIST`                     | JSON array of regexes for allowed workload URLs (default: `[]`, deny all) |
+
+### Outbound URL allowlist
+
+The Cloud Connector denies all workload HTTP requests by default. This policy
+applies to transparent proxy mode, YAML functions, SDK upstream/proxy helpers,
+and direct `fetch` calls inside TypeScript functions. The mandatory OAuth and
+WebSocket control-plane connection to the Serviceware Cloud is separate from this policy.
+
+Set `OUTBOUND_URL_ALLOWLIST` to a JSON array of regular-expression strings. A
+request is allowed when at least one expression matches its normalized,
+absolute URL. Redirect targets are checked again before they are requested.
+Invalid JSON or regular expressions stop startup with a configuration error.
+
+```env
+# Default: no workload URL is reachable
+OUTBOUND_URL_ALLOWLIST=[]
+
+# Allow one HTTPS domain, including all paths
+OUTBOUND_URL_ALLOWLIST=["^https://api[.]example[.]com(?:/|$)"]
+
+# Allow multiple targets
+OUTBOUND_URL_ALLOWLIST=["^https://api[.]example[.]com(?:/|$)","^http://erp:8080(?:/|$)"]
+
+# Explicitly allow every URL (not recommended)
+OUTBOUND_URL_ALLOWLIST=[".*"]
+```
+
+Anchor domain expressions with `^` and a host boundary such as `(?:/|$)` to
+avoid unintentionally matching lookalike domains. Configuration changes take
+effect after restarting the Cloud Connector.
 
 ### Resilience tuning
 
-The connector keeps its outbound WebSocket alive on its own. These knobs control
-the reconnect behaviour; the defaults are production-ready.
+The Cloud Connector keeps its outbound WebSocket alive on its own. These knobs
+control the reconnect behaviour; the defaults are production-ready.
 
 | Variable                                    | Default | Description                                                                                                                                                       |
 | ------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS` | `1`     | Initial reconnect backoff delay.                                                                                                                                  |
-| `CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS`     | `30`    | Maximum reconnect backoff delay (the connector never gives up; it keeps retrying at this cap).                                                                    |
+| `CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS`     | `30`    | Maximum reconnect backoff delay (the Cloud Connector never gives up; it keeps retrying at this cap).                                                              |
 | `CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO`    | `0.5`   | Fraction of the backoff that is randomized (equal jitter, `0`–`1`) to avoid thundering herds. `0` = deterministic.                                                |
 | `CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS`  | `5`     | A connection must stay open at least this long before the backoff counter resets (anti-flap).                                                                     |
 | `CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS`   | `10`    | Max wait for the WebSocket to open before retrying (bounds half-open / black-hole sockets).                                                                       |
@@ -408,10 +444,10 @@ The runtime is designed to never stay down:
   reboot. The only intentional stop is `docker compose down`.
 - **Visible by design.** An unrecoverable **configuration** error exits with a
   distinct code (`78`) instead of retrying forever — fix the config and the
-  supervisor restarts a clean process. A wedged connector fails `/health` so the
-  orchestrator restarts it; a connector that is merely reconnecting keeps
-  passing `/health` (so it is not killed mid-recovery) but reports `/ready` =
-  `503`.
+  supervisor restarts a clean process. A wedged Cloud Connector fails `/health`
+  so the orchestrator restarts it; a Cloud Connector that is merely reconnecting
+  keeps passing `/health` (so it is not killed mid-recovery) but reports
+  `/ready` = `503`.
 
 ## Health Endpoints
 
@@ -486,8 +522,12 @@ docker-compose up -d
 
 ```
 cloud-connector/
+├── CHANGELOG.md             # Release notes and migration requirements
 ├── Dockerfile              # Docker image definition
 ├── README.md               # This documentation
+├── docs/
+│   ├── INSTALLATION.md      # Customer installation guide
+│   └── RELEASE.md           # Maintainer release checklist
 ├── openapi/
 │   └── api.yml             # WebSocket protocol schema
 ├── sdk/                    # SDK package (@serviceware/cloud-connector-sdk)
@@ -504,6 +544,7 @@ cloud-connector/
 │   ├── function-router.ts  # Function execution
 │   ├── function-scanner.ts # File-based function discovery
 │   ├── protocol.ts         # WebSocket frame handling
+│   ├── outbound-url-policy.ts # Default-deny HTTP URL policy
 │   ├── yaml-functions.ts   # Declarative YAML functions
 │   ├── websocket-client.ts # Outbound WebSocket client
 │   ├── generated/          # Generated TypeScript models
@@ -514,7 +555,7 @@ cloud-connector/
     │   ├── docker-compose.yml
     │   └── README.md       # Guide
     └── examples/           # Reference implementations
-        ├── active-directory/
+        ├── ad-user-export/
         ├── erp-integration/
         └── ticketing-yaml/
 ```
@@ -524,8 +565,11 @@ cloud-connector/
 ## Security
 
 - **Outbound only**: No inbound connections required
+- **Default-deny workload HTTP**: Every target and redirect must match
+  `OUTBOUND_URL_ALLOWLIST`
 - **TLS**: WebSocket connections should always use `wss://`
-- **Sandbox**: Deno's permission system limits script capabilities
+- **Trusted functions**: TypeScript/JavaScript functions run in the Edge
+  Connector process; deploy only reviewed function code
 - **No secrets in logs**: Sensitive headers are not logged
 
 ---
@@ -534,8 +578,8 @@ cloud-connector/
 
 ### WebSocket Does Not Connect
 
-The connector retries forever with exponential backoff, so a transient outage
-heals on its own. If it never connects:
+The Cloud Connector retries forever with exponential backoff, so a transient
+outage heals on its own. If it never connects:
 
 1. Check `CLOUD_CONNECTOR_WS_URL` (must use `ws://` or `wss://`)
 2. Check `CLOUD_CONNECTOR_HOST`, `CLOUD_CONNECTOR_CLIENT_ID`, and
@@ -547,10 +591,10 @@ heals on its own. If it never connects:
 ### Container Keeps Restarting
 
 A fast crash-restart loop with a `FATAL: invalid configuration` log line (exit
-code `78`) means a misconfiguration the connector deliberately refuses to retry
-in-process. Fix the reported environment variable and the container restarts
-cleanly. (A wedged connector that fails `/health` is restarted by Docker on
-purpose — that is recovery, not a fault.)
+code `78`) means a misconfiguration the Cloud Connector deliberately refuses to
+retry in-process. Fix the reported environment variable and the container
+restarts cleanly. (A wedged Cloud Connector that fails `/health` is restarted by
+Docker on purpose — that is recovery, not a fault.)
 
 ### Function Is Not Loaded
 
@@ -566,5 +610,6 @@ Check the error code in the response:
 | -------------------- | ------------------------------------------ |
 | `YAML_PARSE_ERROR`   | Invalid YAML                               |
 | `REQUEST_REJECTED`   | Request was rejected by a `reject` rule    |
+| `OUTBOUND_URL_NOT_ALLOWED` | Target or redirect is not allowlisted |
 | `METHOD_NOT_ALLOWED` | Route exists, but not for this HTTP method |
 | `NOT_FOUND`          | No function handler matched the request    |

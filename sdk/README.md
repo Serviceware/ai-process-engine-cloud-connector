@@ -1,6 +1,6 @@
 # @serviceware/cloud-connector-sdk
 
-SDK for developing Cloud Connector Functions.
+SDK for developing Cloud Connector functions.
 
 ## Installation
 
@@ -8,7 +8,7 @@ SDK for developing Cloud Connector Functions.
 // deno.json
 {
   "imports": {
-    "@serviceware/cloud-connector-sdk": "jsr:@serviceware/cloud-connector-sdk@2"
+    "@serviceware/cloud-connector-sdk": "jsr:@serviceware/cloud-connector-sdk@3"
   }
 }
 ```

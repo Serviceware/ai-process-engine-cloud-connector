@@ -6,6 +6,8 @@ export type AccessTokenOptions = {
     timeoutMs?: number;
     /** External signal (e.g. shutdown) that aborts the fetches promptly. */
     signal?: AbortSignal;
+    /** HTTP implementation used by the Cloud Connector control plane. */
+    fetcher?: typeof globalThis.fetch;
 };
 
 const defaultTokenFetchTimeoutMs = 10_000;
@@ -33,7 +35,8 @@ export async function generateAccessToken(
     options: AccessTokenOptions,
 ): Promise<string> {
     const timeoutMs = options.timeoutMs ?? defaultTokenFetchTimeoutMs;
-    const wellKnownResponse = await fetch(joinUrl(options.host, ".well-known"), {
+    const fetcher = options.fetcher ?? globalThis.fetch;
+    const wellKnownResponse = await fetcher(joinUrl(options.host, ".well-known"), {
         signal: fetchSignal(timeoutMs, options.signal),
     });
     if (!wellKnownResponse.ok) {
@@ -52,7 +55,7 @@ export async function generateAccessToken(
         );
     }
 
-    const tokenResponse = await fetch(
+    const tokenResponse = await fetcher(
         joinUrl(authEndpoint, "protocol/openid-connect/token"),
         {
             method: "POST",

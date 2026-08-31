@@ -16,6 +16,7 @@ import type {
 } from "./generated/models.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
+import type { Fetcher } from "./outbound-url-policy.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
 /**
@@ -28,6 +29,8 @@ export interface HttpFunctionRouterOptions {
     env?: Record<string, string>;
     /** Runtime logger */
     logger?: RuntimeLogger;
+    /** Outbound HTTP implementation with the configured URL policy. */
+    fetcher?: Fetcher;
 }
 /**
  * Routes HTTP requests to function handlers.
@@ -36,11 +39,13 @@ export class HttpFunctionRouter implements ProtocolExecutor {
     private readonly scanner: HttpFunctionScanner;
     private readonly env: Record<string, string>;
     private readonly logger: RuntimeLogger;
+    private readonly fetcher: Fetcher;
 
     constructor(options: HttpFunctionRouterOptions) {
         this.scanner = options.scanner;
         this.env = options.env ?? Deno.env.toObject();
         this.logger = options.logger ?? createLogger();
+        this.fetcher = options.fetcher ?? globalThis.fetch;
     }
 
     /**
@@ -86,6 +91,7 @@ export class HttpFunctionRouter implements ProtocolExecutor {
             requestId: frame.requestId,
             startedAt: new Date().toISOString(),
             log: this.logger,
+            fetcher: this.fetcher,
             waitUntil: (task) => {
                 void task.catch((error) => {
                     this.logger.error("HTTP function background task failed", error);

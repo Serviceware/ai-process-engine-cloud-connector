@@ -51,6 +51,9 @@ Environment variables in `.env`:
 # Serviceware Cloud WebSocket
 SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=your-tenant
 
+# Workload URL policy
+OUTBOUND_URL_ALLOWLIST=["^https://sap-gateway[.]example[.]com(?:/|$)"]
+
 # SAP Connection
 ERP_URL=https://sap-gateway.example.com
 ERP_USER=svc_serviceware

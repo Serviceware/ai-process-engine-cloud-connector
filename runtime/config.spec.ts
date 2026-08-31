@@ -22,6 +22,7 @@ Deno.test("loadConfig uses documented defaults", () => {
     reconnectJitterRatio: 0.5,
     livenessStaleMs: 120_000,
     logLevel: "info",
+    outboundUrlAllowlist: [],
   });
 });
 
@@ -38,6 +39,7 @@ Deno.test("loadConfig reads explicit values and trims optional paths", () => {
     CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "2",
     CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "9",
     CLOUD_CONNECTOR_LOG_LEVEL: " DEBUG ",
+    OUTBOUND_URL_ALLOWLIST: '["^https://api[.]example[.]com(?:/|$)", ".*"]',
   });
 
   assertEquals(config.host, "127.0.0.1");
@@ -51,6 +53,33 @@ Deno.test("loadConfig reads explicit values and trims optional paths", () => {
   assertEquals(config.reconnectInitialDelayMs, 2_000);
   assertEquals(config.reconnectMaxDelayMs, 9_000);
   assertEquals(config.logLevel, "debug");
+  assertEquals(config.outboundUrlAllowlist, [
+    "^https://api[.]example[.]com(?:/|$)",
+    ".*",
+  ]);
+});
+
+Deno.test("loadConfig rejects malformed outbound URL allowlists", () => {
+  for (
+    const value of [
+      "not-json",
+      "{}",
+      '[""]',
+      "[42]",
+    ]
+  ) {
+    assertThrows(
+      () => loadConfig({ OUTBOUND_URL_ALLOWLIST: value }),
+      Error,
+      "OUTBOUND_URL_ALLOWLIST must be a JSON array",
+    );
+  }
+
+  assertThrows(
+    () => loadConfig({ OUTBOUND_URL_ALLOWLIST: '["("]' }),
+    Error,
+    "OUTBOUND_URL_ALLOWLIST[0] is not a valid regular expression",
+  );
 });
 
 Deno.test("loadConfig rejects invalid URL values", () => {
@@ -70,7 +99,7 @@ Deno.test("loadConfig requires authentication settings when cloud auth is used",
   assertThrows(
     () => loadConfig({ CLOUD_CONNECTOR_WS_URL: "wss://cloud.example/ws" }),
     Error,
-    "Cloud connector authentication requires CLOUD_CONNECTOR_HOST, CLOUD_CONNECTOR_CLIENT_ID, CLOUD_CONNECTOR_CLIENT_SECRET",
+    "Cloud Connector authentication requires CLOUD_CONNECTOR_HOST, CLOUD_CONNECTOR_CLIENT_ID, CLOUD_CONNECTOR_CLIENT_SECRET",
   );
 });
 

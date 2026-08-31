@@ -7,7 +7,7 @@ on-premise Active Directory via the Serviceware Cloud.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Serviceware Cloud                                  │
+│                         Serviceware Cloud                                    │
 │                                                                              │
 │   Workflow: "Get all IT employees"                                           │
 │        │                                                                     │
@@ -22,7 +22,7 @@ on-premise Active Directory via the Serviceware Cloud.
 │                      Customer Network (DMZ)     │                            │
 │                                                 ▼                            │
 │   ┌───────────────────────────────────────────────────────────────────────┐  │
-│   │                       Cloud Connector                                 │  │
+│   │                        Cloud Connector                                │  │
 │   │                                                                       │  │
 │   │   request.ts:                                                         │  │
 │   │   - Add authentication                                                │  │
@@ -133,6 +133,9 @@ Required variables:
 ```env
 # Serviceware Cloud
 SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=your-tenant
+
+# Workload URL policy
+OUTBOUND_URL_ALLOWLIST=["^http://ad-bridge:5000(?:/|$)"]
 
 # Active Directory
 AD_SERVER=ldap://dc01.corp.example.com
@@ -280,7 +283,7 @@ Create a dedicated service account with minimal permissions:
 ```powershell
 # PowerShell on Domain Controller
 New-ADUser -Name "svc_serviceware" `
-    -Description "Service Account for Serviceware Cloud Connector" `
+    -Description "Service Account for Cloud Connector connection to the Serviceware Cloud" `
     -PasswordNeverExpires $true `
     -CannotChangePassword $true `
     -Enabled $true

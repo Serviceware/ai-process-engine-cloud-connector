@@ -1,14 +1,85 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
 import { createReloadableProtocolExecutor } from "./reloadable-request-executor.ts";
+import { RuntimeError } from "./runtime-error.ts";
 
 const silentLogger = createLogger("error", {
     debug: () => undefined,
     error: () => undefined,
     info: () => undefined,
     warn: () => undefined,
+});
+
+Deno.test("ReloadableProtocolExecutor denies outbound URLs by default", async () => {
+    const executor = await createReloadableProtocolExecutor({
+        config: loadConfig({
+            CLOUD_CONNECTOR_FUNCTIONS_DIR: "./does-not-exist",
+        }),
+        logger: silentLogger,
+    });
+
+    await assertRejects(
+        () =>
+            executor.execute({
+                type: "request",
+                requestId: "request-1",
+                request: {
+                    method: "GET",
+                    url: "https://internal.example/orders",
+                },
+            }),
+        RuntimeError,
+        "OUTBOUND_URL_ALLOWLIST",
+    );
+});
+
+Deno.test("ReloadableProtocolExecutor applies the policy to SDK upstream helpers", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        await Deno.writeTextFile(
+            join(dir, "outbound.ts"),
+            `export async function GET(ctx) {
+                await ctx.upstream("https://internal.example").get();
+                return new Response("unexpected");
+            }`,
+        );
+        const executor = await createReloadableProtocolExecutor({
+            config: loadConfig({ CLOUD_CONNECTOR_FUNCTIONS_DIR: dir }),
+            logger: silentLogger,
+        });
+
+        await assertRejects(
+            () => executor.execute(blockedFrame()),
+            RuntimeError,
+            "OUTBOUND_URL_ALLOWLIST",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("ReloadableProtocolExecutor applies the policy to YAML targets", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        await Deno.writeTextFile(
+            join(dir, "outbound.yml"),
+            "target: https://internal.example\nmethods: [GET]\n",
+        );
+        const executor = await createReloadableProtocolExecutor({
+            config: loadConfig({ CLOUD_CONNECTOR_FUNCTIONS_DIR: dir }),
+            logger: silentLogger,
+        });
+
+        await assertRejects(
+            () => executor.execute(blockedFrame()),
+            RuntimeError,
+            "OUTBOUND_URL_ALLOWLIST",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
 });
 
 Deno.test("ReloadableProtocolExecutor switches between HTTP proxy and function mode", async () => {
@@ -107,3 +178,11 @@ Deno.test("Integration: Starter template loads valid functions and isolates corr
     }
     console.log("=== END LOG OUTPUT ===\n");
 });
+
+function blockedFrame() {
+    return {
+        type: "request" as const,
+        requestId: "request-1",
+        request: { method: "GET" as const, url: "/outbound" },
+    };
+}

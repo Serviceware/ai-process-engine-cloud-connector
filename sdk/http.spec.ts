@@ -54,6 +54,7 @@ function context(
         env?: Record<string, string>;
         params?: Record<string, string>;
         waitUntil?: (task: Promise<unknown>) => void;
+        fetcher?: typeof globalThis.fetch;
     } = {},
 ): HttpContext {
     return createHttpContext({
@@ -64,6 +65,7 @@ function context(
         startedAt,
         log: silentLogger,
         waitUntil: options.waitUntil,
+        fetcher: options.fetcher,
     });
 }
 
@@ -673,6 +675,23 @@ Deno.test("context upstream helper adds request id", async () => {
             "ok",
         );
     });
+});
+
+Deno.test("context upstream and proxy helpers use the runtime fetcher", async () => {
+    const calls: string[] = [];
+    const fetcher = ((input: FetchInput) => {
+        calls.push(fetchUrl(input));
+        return Promise.resolve(new Response("ok"));
+    }) as typeof globalThis.fetch;
+    const ctx = context(undefined, { fetcher });
+
+    await ctx.upstream("https://api.example").get();
+    await ctx.proxy.to("https://proxy.example").send();
+
+    assertEquals(calls, [
+        "https://api.example/",
+        "https://proxy.example/users/42?tag=a&tag=b&page=2",
+    ]);
 });
 
 Deno.test("proxy builder forwards transformed HTTP requests", async () => {
