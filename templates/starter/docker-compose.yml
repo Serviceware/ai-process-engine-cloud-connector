@@ -1,4 +1,4 @@
-# Cloud Connector Deployment
+# Edge Connector Deployment
 # ==========================
 #
 # Start: docker-compose up -d
@@ -17,7 +17,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Required: WebSocket URL for the Serviceware Cloud
+      # Required: WebSocket URL for FLAMOX365
       - CLOUD_CONNECTOR_WS_URL=${SERVICEWARE_WS_URL}
       - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}

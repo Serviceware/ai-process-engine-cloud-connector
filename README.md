@@ -1,8 +1,8 @@
-# Cloud Connector
+# Edge Connector
 
-The Cloud Connector connects internal HTTP services to the Serviceware Cloud
-over an authenticated WebSocket connection. Workload requests are forwarded to
-one target configured in YAML and are default-deny at the network boundary.
+The Edge Connector connects internal HTTP services to FLAMOX365 over an
+authenticated WebSocket connection. Workload requests are forwarded to one
+target configured in YAML and are default-deny at the network boundary.
 
 ## Security and customization model
 
@@ -19,7 +19,7 @@ Two independent controls must permit workload traffic:
 
 An absent allowlist and `OUTBOUND_URL_ALLOWLIST=[]` deny all workload URLs.
 `OUTBOUND_URL_ALLOWLIST=[".*"]` explicitly permits every URL and should only be
-used after a security review. The required Serviceware Cloud OAuth and WebSocket
+used after a security review. The required FLAMOX365 OAuth and WebSocket
 control-plane requests are not workload traffic and do not use this allowlist.
 
 ## Quick start
@@ -129,8 +129,8 @@ cookie, and proxy-authorization credentials.
 
 | Variable                                     | Default          | Description                                    |
 | -------------------------------------------- | ---------------- | ---------------------------------------------- |
-| `CLOUD_CONNECTOR_HOST`                       | —                | Serviceware Cloud HTTP base URL for OAuth      |
-| `CLOUD_CONNECTOR_WS_URL`                     | —                | Serviceware Cloud WebSocket URL                |
+| `CLOUD_CONNECTOR_HOST`                       | —                | FLAMOX365 HTTP base URL for OAuth              |
+| `CLOUD_CONNECTOR_WS_URL`                     | —                | FLAMOX365 WebSocket URL                        |
 | `CLOUD_CONNECTOR_CLIENT_ID`                  | —                | OAuth client ID                                |
 | `CLOUD_CONNECTOR_CLIENT_SECRET`              | —                | OAuth client secret                            |
 | `CLOUD_CONNECTOR_FORWARDING_CONFIG`          | `forwarding.yml` | Required YAML configuration path               |
@@ -174,12 +174,10 @@ The runtime returns stable error codes to the cloud, including:
 
 ## Development
 
-Use Deno 2.8.1 or newer:
+Use Deno 2.8.1, matching `.dvmrc` and the production image:
 
 ```bash
-deno task check
-deno task lint
-deno task test
+deno task ci
 ```
 
 The runtime OpenAPI models are generated with `deno task generate:api`. The
@@ -200,4 +198,5 @@ customization examples.
 ```
 
 See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for deployment details and
-[`docs/RELEASE.md`](docs/RELEASE.md) for the release checklist.
+[`docs/CI.md`](docs/CI.md) for repository validation. The release process is
+documented in [`docs/RELEASE.md`](docs/RELEASE.md).

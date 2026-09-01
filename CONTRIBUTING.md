@@ -1,7 +1,7 @@
-# Contributing to Cloud Connector
+# Contributing to Edge Connector
 
-Thank you for your interest in contributing to the Cloud Connector! This
-document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to the Edge Connector! This document
+provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -46,9 +46,7 @@ Feature requests are welcome! Please:
 4. **Write tests**: Add tests for new functionality
 5. **Run checks**:
    ```bash
-   deno task check  # Type checking
-   deno task lint   # Linting
-   deno task test   # Run tests
+   deno task ci
    ```
 6. **Commit your changes**: Use clear, descriptive commit messages
 7. **Submit a pull request**: Reference any related issues
@@ -60,14 +58,15 @@ Feature requests are welcome! Please:
 git clone https://github.com/YOUR_USERNAME/ai-process-engine-cloud-connector.git
 cd ai-process-engine-cloud-connector
 
-# Run tests
-deno task test
+# Run every required CI check
+deno task ci
 
-# Run type checking
-deno task check
-
-# Run linting
+# Or run an individual check
+deno task fmt:check
 deno task lint
+deno task typecheck
+deno task test
+deno task generate:check
 
 # Start development server
 deno task dev
@@ -76,8 +75,7 @@ deno task dev
 ## Coding Standards
 
 - **TypeScript**: All code should be written in TypeScript
-- **Formatting**: Preserve the established style and use Deno's formatter for
-  new standalone files
+- **Formatting**: Ensure all supported files pass `deno task fmt:check`
 - **Linting**: Ensure code passes `deno lint`
 - **Testing**: Write tests for new features and bug fixes
 - **Documentation**: Update documentation when changing public APIs

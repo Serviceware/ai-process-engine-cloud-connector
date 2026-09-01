@@ -1,6 +1,6 @@
 # Future protocol architecture
 
-The current Cloud Connector wire contract and runtime support HTTP forwarding
+The current Edge Connector wire contract and runtime support HTTP forwarding
 only. Future protocol work must preserve the security boundary introduced by the
 YAML-only runtime:
 

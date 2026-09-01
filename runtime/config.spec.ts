@@ -99,7 +99,7 @@ Deno.test("loadConfig requires authentication settings when cloud auth is used",
   assertThrows(
     () => loadConfig({ CLOUD_CONNECTOR_WS_URL: "wss://cloud.example/ws" }),
     Error,
-    "Cloud Connector authentication requires CLOUD_CONNECTOR_HOST, CLOUD_CONNECTOR_CLIENT_ID, CLOUD_CONNECTOR_CLIENT_SECRET",
+    "Edge Connector authentication requires CLOUD_CONNECTOR_HOST, CLOUD_CONNECTOR_CLIENT_ID, CLOUD_CONNECTOR_CLIENT_SECRET",
   );
 });
 

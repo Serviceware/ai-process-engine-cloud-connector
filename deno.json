@@ -1,11 +1,18 @@
 {
   "workspace": ["./runtime"],
   "tasks": {
-    "check": "deno task --cwd runtime check",
+    "check": "deno task typecheck",
+    "ci": "deno task fmt:check && deno task lint && deno task typecheck && deno task test && deno task generate:check",
+    "coverage": "deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' --lcov --output=coverage/lcov.info coverage/raw && deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' coverage/raw",
     "dev": "deno task --cwd runtime dev",
+    "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
     "generate:api": "deno task --cwd runtime generate:api",
+    "generate:check": "deno task generate:api && deno fmt runtime/generated && git diff --exit-code -- runtime/generated",
     "lint": "deno lint runtime",
     "start": "deno task --cwd runtime start",
-    "test": "deno task --cwd runtime test"
+    "test": "deno test --frozen --allow-env --allow-read --allow-write runtime/*.spec.ts",
+    "test:coverage": "deno task test --coverage=coverage/raw && deno task coverage",
+    "typecheck": "deno check --frozen runtime"
   }
 }

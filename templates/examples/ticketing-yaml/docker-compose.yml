@@ -13,7 +13,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # WebSocket URL for the Serviceware Cloud
+      # WebSocket URL for FLAMOX365
       - CLOUD_CONNECTOR_WS_URL=${SERVICEWARE_WS_URL}
       - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}

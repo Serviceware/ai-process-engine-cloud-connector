@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version-file: .dvmrc
+          cache: true
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Check formatting
+        run: deno task fmt:check
+
+      - name: Lint
+        run: deno task lint
+
+      - name: Type-check
+        run: deno task typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version-file: .dvmrc
+          cache: true
+
+      - name: Run tests with coverage
+        run: deno task test --coverage=coverage/raw --junit-path=test-results.xml
+
+      - name: Create source-only coverage report
+        run: deno task coverage
+
+      - name: Upload test results and coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results-${{ github.run_attempt }}
+          path: |
+            test-results.xml
+            coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
+
+  contracts:
+    name: Generated contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version-file: .dvmrc
+          cache: true
+
+      - name: Verify generated API models
+        run: deno task generate:check
+
+  container:
+    name: Container smoke test
+    needs:
+      - quality
+      - test
+      - contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate maintained Compose files
+        run: |
+          docker compose --file templates/starter/docker-compose.yml config --quiet
+          docker compose --file templates/examples/ticketing-yaml/docker-compose.yml config --quiet
+
+      - name: Build container image
+        run: docker build --pull --tag edge-connector-ci:${GITHUB_SHA} .
+
+      - name: Start Edge Connector
+        run: |
+          docker run --rm --detach \
+            --name edge-connector-ci \
+            --publish 18080:8080 \
+            --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
+            --env INTERNAL_API_URL=https://internal.example \
+            --env OUTBOUND_URL_ALLOWLIST='[]' \
+            --volume "${PWD}/templates/starter/forwarding.yml:/config/forwarding.yml:ro" \
+            edge-connector-ci:${GITHUB_SHA}
+
+      - name: Wait for a healthy container
+        run: |
+          for attempt in {1..60}; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' edge-connector-ci)"
+            if [[ "${status}" == "healthy" ]]; then
+              curl --fail --silent --show-error http://localhost:18080/health
+              exit 0
+            fi
+            if [[ "${status}" == "unhealthy" ]]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Show logs and remove smoke-test container
+        if: always()
+        run: |
+          docker logs edge-connector-ci || true
+          docker rm --force edge-connector-ci || true
+
+  required:
+    name: Required
+    if: always()
+    needs:
+      - quality
+      - test
+      - contracts
+      - container
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all required jobs succeeded
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          CONTRACTS_RESULT: ${{ needs.contracts.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+        run: |
+          [[ "${QUALITY_RESULT}" == "success" ]]
+          [[ "${TEST_RESULT}" == "success" ]]
+          [[ "${CONTRACTS_RESULT}" == "success" ]]
+          [[ "${CONTAINER_RESULT}" == "success" ]]

@@ -1,11 +1,11 @@
-# Cloud Connector installation
+# Edge Connector installation
 
 ## Requirements
 
 - Docker Engine with Docker Compose
-- outbound HTTPS access to the Serviceware Cloud
+- outbound HTTPS access to FLAMOX365
 - network access from the container to exactly one configured HTTP(S) target
-- Serviceware Cloud host, WebSocket URL, client ID, and client secret
+- FLAMOX365 host, WebSocket URL, client ID, and client secret
 
 The deployment does not require Deno, Node.js, a compiler, or a customer script
 runtime on the host.
@@ -18,7 +18,7 @@ cd cloud-connector
 cp .env.example .env
 ```
 
-Set the Serviceware Cloud values and the internal target in `.env`. Configure an
+Set the FLAMOX365 values and the internal target in `.env`. Configure an
 anchored allowlist expression for that target. The connector will not forward
 anything while the allowlist is empty.
 
@@ -105,8 +105,8 @@ No live code reload or route recomposition exists.
 
 Allow the container to reach:
 
-- the Serviceware Cloud OAuth endpoint over HTTPS;
-- the configured Serviceware Cloud WebSocket endpoint over WSS; and
+- the FLAMOX365 OAuth endpoint over HTTPS;
+- the configured FLAMOX365 WebSocket endpoint over WSS; and
 - the YAML target and any permitted redirect destinations.
 
 Apply an infrastructure egress policy in addition to `OUTBOUND_URL_ALLOWLIST`.
@@ -124,7 +124,7 @@ configuration, not a safe production default.
 
 ```ini
 [Unit]
-Description=Cloud Connector
+Description=Edge Connector
 Requires=docker.service
 After=docker.service network-online.target
 
