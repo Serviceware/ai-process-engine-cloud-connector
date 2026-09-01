@@ -1,7 +1,7 @@
-# Contributing to Edge Connector
+# Contributing to Cloud Connector
 
-Thank you for your interest in contributing to the Edge Connector! This document
-provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to the Cloud Connector! This
+document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 

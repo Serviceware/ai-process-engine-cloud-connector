@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Edge Connector are documented in this file. Releases
+All notable changes to the Cloud Connector are documented in this file. Releases
 follow [Semantic Versioning](https://semver.org/).
 
 ## 3.0.0 - 2026-08-31
@@ -9,7 +9,7 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Workload HTTP access is now denied by default. Deployments must configure
   `OUTBOUND_URL_ALLOWLIST` as a JSON array of regular expressions before the
-  Edge Connector can reach internal or external workload URLs.
+  Cloud Connector can reach internal or external workload URLs.
 - An absent variable and `OUTBOUND_URL_ALLOWLIST=[]` both deny every workload
   URL. `OUTBOUND_URL_ALLOWLIST=[".*"]` is the explicit, unrestricted opt-out and
   should only be used after a security review.
@@ -29,8 +29,8 @@ follow [Semantic Versioning](https://semver.org/).
   redirect chains to 20 hops.
 - Removed authorization, proxy authorization, and cookie credentials when a
   redirect crosses an origin boundary.
-- Kept the required FLAMOX365 OAuth and WebSocket control-plane traffic outside
-  the workload policy.
+- Kept the required Serviceware Cloud OAuth and WebSocket control-plane traffic
+  outside the workload policy.
 - Added the stable `OUTBOUND_URL_NOT_ALLOWED` runtime error code.
 
 ### Changed

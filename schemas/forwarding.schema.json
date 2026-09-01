@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://serviceware.se/cloud-connector/schemas/forwarding.schema.json",
-  "title": "Edge Connector YAML Forwarding Configuration",
-  "description": "Declarative forwarding configuration for all workload requests handled by one Edge Connector instance.",
+  "title": "Cloud Connector YAML Forwarding Configuration",
+  "description": "Declarative forwarding configuration for all workload requests handled by one Cloud Connector instance.",
   "type": "object",
   "required": ["target"],
   "properties": {

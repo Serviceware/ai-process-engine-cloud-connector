@@ -1,6 +1,6 @@
 openapi: 3.0.2
 info:
-  title: Edge Connector Protocol
+  title: Cloud Connector Protocol
   version: 1.0.0
 servers:
   - url: /cloud-connector

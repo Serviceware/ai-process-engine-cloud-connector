@@ -2,7 +2,7 @@ export type HealthFetch = typeof fetch;
 
 /**
  * Health check script for Docker HEALTHCHECK.
- * Checks if the Edge Connector is responding to the health endpoint.
+ * Checks if the Cloud Connector is responding to the health endpoint.
  */
 export async function checkHealth(
   port = readHealthPort(),

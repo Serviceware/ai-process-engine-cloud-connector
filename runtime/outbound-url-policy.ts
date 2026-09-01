@@ -7,7 +7,7 @@ const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 const maximumRedirects = 20;
 
 /**
- * Fetch implementation reserved for the Edge Connector control plane.
+ * Fetch implementation reserved for the Cloud Connector control plane.
  * Workload traffic must use an allowlisted fetch created below.
  */
 export const fetchWithoutOutboundUrlPolicy: Fetcher = unrestrictedFetch;

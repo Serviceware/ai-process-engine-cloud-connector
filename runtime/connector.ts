@@ -75,11 +75,11 @@ export class ConnectorRuntime {
     });
 
     socket.addEventListener("open", () => {
-      this.logger.info("Edge Connector WebSocket opened");
+      this.logger.info("Cloud Connector WebSocket opened");
     });
 
     socket.addEventListener("close", (e) => {
-      this.logger.warn("Edge Connector WebSocket closed", {
+      this.logger.warn("Cloud Connector WebSocket closed", {
         code: e.code,
         reason: e.reason,
       });

@@ -30,7 +30,7 @@ export async function createRuntimeBundle(
   config: ConnectorConfig,
   logger: RuntimeLogger = createLogger(config.logLevel),
 ): Promise<RuntimeBundle> {
-  logger.info("Starting Edge Connector runtime");
+  logger.info("Starting Cloud Connector runtime");
   const protocolExecutor = await createProtocolExecutor(config, logger);
   const runtime = new ConnectorRuntime({
     protocolExecutor,
@@ -73,7 +73,7 @@ export function createHandler(
     if (url.pathname === "/ready") {
       const websocketConfigured = config.websocketUrl !== undefined;
       const websocketConnected = status.connectionState === "open";
-      // With no WS configured the Edge Connector is a pure HTTP service => ready.
+      // With no WS configured the Cloud Connector is a pure HTTP service => ready.
       const ready = !websocketConfigured || websocketConnected;
       return Response.json(
         {

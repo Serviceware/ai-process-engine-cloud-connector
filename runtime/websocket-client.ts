@@ -43,7 +43,7 @@ export async function runCloudWebSocketClient(
     status.reconnectAttempt = attempt;
 
     try {
-      logger.info(`Opening Edge Connector WebSocket (attempt ${attempt + 1})`);
+      logger.info(`Opening Cloud Connector WebSocket (attempt ${attempt + 1})`);
       const outcome = await openWebSocket(
         config,
         runtime,
@@ -55,7 +55,7 @@ export async function runCloudWebSocketClient(
       attempt = outcome.stableOpen ? 0 : attempt + 1;
     } catch (error) {
       attempt += 1;
-      logger.error("Edge Connector WebSocket failed", error);
+      logger.error("Cloud Connector WebSocket failed", error);
     } finally {
       status.connectionState = "disconnected";
     }
@@ -71,10 +71,10 @@ export async function runCloudWebSocketClient(
         config.reconnectMaxDelayMs,
         config.reconnectJitterRatio,
       );
-      logger.info(`Reconnecting Edge Connector WebSocket in ${backoff}ms`);
+      logger.info(`Reconnecting Cloud Connector WebSocket in ${backoff}ms`);
       await delay(backoff, signal);
     } catch (error) {
-      logger.error("Edge Connector reconnect delay failed", error);
+      logger.error("Cloud Connector reconnect delay failed", error);
     }
   }
 }
@@ -123,7 +123,7 @@ async function openWebSocket(
     // Adding an abort listener now would never fire (the transition already
     // happened), so bail out immediately to avoid a hung promise.
     if (signal.aborted) {
-      reject(new Error("Edge Connector shutting down before connect"));
+      reject(new Error("Cloud Connector shutting down before connect"));
       return;
     }
 
@@ -181,7 +181,7 @@ async function openWebSocket(
         closeSocket();
         fail(
           new Error(
-            `Edge Connector WebSocket did not open within ${config.connectTimeoutMs}ms`,
+            `Cloud Connector WebSocket did not open within ${config.connectTimeoutMs}ms`,
           ),
         );
       }
@@ -217,7 +217,7 @@ async function openWebSocket(
           status.lastTickAt = now;
 
           if (socket.readyState === WebSocket.OPEN) {
-            logger.info("Sending Edge Connector heartbeat");
+            logger.info("Sending Cloud Connector heartbeat");
             socket.send(serializeFrame(createHeartbeatFrame()));
           }
 
@@ -228,7 +228,7 @@ async function openWebSocket(
               config.heartbeatTimeoutFactor;
             if (silentFor > limit) {
               logger.warn(
-                `Edge Connector WebSocket silent for ${silentFor}ms; reconnecting`,
+                `Cloud Connector WebSocket silent for ${silentFor}ms; reconnecting`,
               );
               // Peer is silent (half-open / dead): force reconnect.
               closeSocket();
@@ -244,7 +244,7 @@ async function openWebSocket(
     socket.addEventListener("error", (event) => {
       if (!opened) {
         fail(
-          new Error("Unable to open Edge Connector WebSocket", {
+          new Error("Unable to open Cloud Connector WebSocket", {
             cause: event,
           }),
         );
@@ -269,7 +269,7 @@ function getAccessTokenOptions(
     !config.cloudConnectorHost || !config.cloudConnectorClientId ||
     !config.cloudConnectorClientSecret
   ) {
-    throw new Error("Edge Connector authentication is not configured.");
+    throw new Error("Cloud Connector authentication is not configured.");
   }
 
   return {

@@ -1,4 +1,4 @@
-# Edge Connector release guide
+# Cloud Connector release guide
 
 Version `3.0.0` is a breaking security release. Workload access changes to
 default-deny and customer scripting, the SDK, file-based routes, and transparent
@@ -46,7 +46,7 @@ Smoke-test with the starter YAML mounted:
 
 ```bash
 docker run --rm --detach \
-  --name edge-connector-release-smoke \
+  --name cloud-connector-release-smoke \
   --publish 18080:8080 \
   --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
   --env INTERNAL_API_URL=https://internal.example \
@@ -55,8 +55,8 @@ docker run --rm --detach \
   ghcr.io/serviceware/cloud-connector:3.0.0
 
 curl --fail http://localhost:18080/health
-docker inspect --format '{{.State.Health.Status}}' edge-connector-release-smoke
-docker stop edge-connector-release-smoke
+docker inspect --format '{{.State.Health.Status}}' cloud-connector-release-smoke
+docker stop cloud-connector-release-smoke
 ```
 
 Before approval, also confirm:
@@ -69,14 +69,15 @@ Before approval, also confirm:
 - malformed and missing YAML fail startup;
 - removed YAML customization fields such as conditions, body/status changes, and
   arbitrary URL rewrites fail validation; and
-- documentation and examples use only Edge Connector and FLAMOX365 naming.
+- documentation and examples use only Cloud Connector and Serviceware Cloud
+  naming.
 
 ## Publish
 
 After merging the verified commit, create and push the annotated release tag:
 
 ```bash
-git tag --annotate v3.0.0 --message "Edge Connector 3.0.0"
+git tag --annotate v3.0.0 --message "Cloud Connector 3.0.0"
 git push origin v3.0.0
 ```
 

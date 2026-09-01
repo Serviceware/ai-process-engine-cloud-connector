@@ -1,4 +1,4 @@
-# Edge Connector repository validation
+# Cloud Connector repository validation
 
 GitHub Actions applies the same checks that contributors run locally. Deno is
 pinned through `.dvmrc`; the Dockerfile uses the same runtime version and the
@@ -34,7 +34,7 @@ manual dispatch. It contains these jobs:
 - `Generated contracts` proves that committed API models match the OpenAPI
   source.
 - `Container smoke test` validates maintained Compose files, builds the image,
-  and waits for the Edge Connector health check.
+  and waits for the Cloud Connector health check.
 - `Required` is the stable aggregate status for branch protection.
 
 Configure the `CI / Required` status as the required branch-protection check.
@@ -56,5 +56,5 @@ Configure required reviewers for both GitHub environments:
 - `production` controls promotion to `latest`.
 
 The technical image name, existing environment variables, and established API
-identifiers remain unchanged for compatibility. User-facing names use Edge
-Connector and FLAMOX365.
+identifiers remain unchanged for compatibility. User-facing names use Cloud
+Connector and Serviceware Cloud.

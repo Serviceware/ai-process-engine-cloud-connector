@@ -207,7 +207,7 @@ function validateLivenessWindow(
 ): void {
   // The supervision loop refreshes its liveness tick at most once per backoff
   // (while reconnecting) and once per heartbeat (while connected). The window
-  // must exceed both, or an Edge Connector that is healthy-but-idle or
+  // must exceed both, or a Cloud Connector that is healthy-but-idle or
   // legitimately backing off would falsely fail /health and be killed
   // mid-recovery.
   const minimum = Math.max(reconnectMaxDelayMs, heartbeatIntervalMs);
@@ -216,7 +216,7 @@ function validateLivenessWindow(
       "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS must be greater than both " +
         "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS and " +
         "CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS so a healthy or " +
-        "recovering Edge Connector is not killed mid-recovery",
+        "recovering Cloud Connector is not killed mid-recovery",
     );
   }
 }
@@ -242,7 +242,7 @@ function validateCloudConnectorAuth(
 
   if (missingVariables.length > 0) {
     throw new Error(
-      `Edge Connector authentication requires ${missingVariables.join(", ")}`,
+      `Cloud Connector authentication requires ${missingVariables.join(", ")}`,
     );
   }
 }

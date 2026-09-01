@@ -6,7 +6,7 @@ export type AccessTokenOptions = {
   timeoutMs?: number;
   /** External signal (e.g. shutdown) that aborts the fetches promptly. */
   signal?: AbortSignal;
-  /** HTTP implementation used by the Edge Connector control plane. */
+  /** HTTP implementation used by the Cloud Connector control plane. */
   fetcher?: typeof globalThis.fetch;
 };
 
