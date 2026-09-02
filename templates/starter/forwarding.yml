@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../schemas/forwarding.schema.json
+
+# Every workload request is forwarded to this target. The inbound path and
+# query string are preserved; an optional static pathPrefix may be added.
+target: "{{ env.INTERNAL_API_URL }}"
+timeout: 30000
+
+request:
+  headers:
+    set:
+      authorization: "Bearer {{ env.INTERNAL_API_TOKEN }}"
+    add:
+      x-request-id: "{{ context.requestId }}"
+    remove:
+      - x-forwarded-for
+      - x-real-ip
+
+response:
+  headers:
+    remove:
+      - server
+      - x-powered-by

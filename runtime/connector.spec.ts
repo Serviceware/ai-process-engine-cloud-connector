@@ -37,8 +37,8 @@ Deno.test("ConnectorRuntime executes protocol executor for request frames", asyn
         execute: () =>
             Promise.resolve({
                 statusCode: 207,
-                headers: { "x-mode": ["function"] },
-                body: "function-response",
+                headers: { "x-mode": ["forwarding"] },
+                body: "forwarding-response",
             }),
     } as unknown as ProtocolExecutor;
     const runtime = new ConnectorRuntime({
@@ -59,8 +59,8 @@ Deno.test("ConnectorRuntime executes protocol executor for request frames", asyn
         requestId: "request-1",
         response: {
             statusCode: 207,
-            headers: { "x-mode": ["function"] },
-            body: "function-response",
+            headers: { "x-mode": ["forwarding"] },
+            body: "forwarding-response",
         },
     }]);
 });

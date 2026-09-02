@@ -3,9 +3,9 @@
     "dev": "deno run --allow-env --allow-net --allow-read --watch main.ts",
     "generate:api": "deno run --allow-env --allow-read --allow-write generate-api.ts",
     "start": "deno run --allow-env --allow-net --allow-read main.ts",
-    "check": "deno check access-token.ts access-token.spec.ts config.spec.ts connector.spec.ts function-router.spec.ts function-scanner.spec.ts function-watcher.ts function-watcher.spec.ts generate-api.ts health-check.spec.ts logger.ts logger.spec.ts main.ts main.spec.ts protocol.spec.ts proxy-router.spec.ts reloadable-request-executor.ts reloadable-request-executor.spec.ts runtime-error.spec.ts websocket-client.spec.ts yaml-functions.spec.ts",
+    "check": "deno check access-token.ts access-token.spec.ts config.spec.ts connector.spec.ts generate-api.ts health-check.spec.ts logger.ts logger.spec.ts main.ts main.spec.ts outbound-url-policy.spec.ts protocol.spec.ts runtime-error.spec.ts websocket-client.spec.ts yaml-forwarding.ts yaml-forwarding.spec.ts",
     "lint": "deno lint",
-    "test": "deno test --allow-env --allow-net --allow-read --allow-write access-token.spec.ts config.spec.ts connector.spec.ts function-router.spec.ts function-scanner.spec.ts function-watcher.spec.ts health-check.spec.ts logger.spec.ts main.spec.ts protocol.spec.ts proxy-router.spec.ts reloadable-request-executor.spec.ts runtime-error.spec.ts websocket-client.spec.ts yaml-functions.spec.ts"
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write access-token.spec.ts config.spec.ts connector.spec.ts health-check.spec.ts logger.spec.ts main.spec.ts outbound-url-policy.spec.ts protocol.spec.ts runtime-error.spec.ts websocket-client.spec.ts yaml-forwarding.spec.ts"
   },
   "imports": {
     "@goast/core": "npm:@goast/core@0.5.3",

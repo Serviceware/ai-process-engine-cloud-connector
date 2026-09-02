@@ -11,7 +11,7 @@
 
 services:
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:latest
+    image: ghcr.io/serviceware/cloud-connector:3.0.0
     container_name: serviceware-cloud-connector
     restart: always
     ports:
@@ -23,18 +23,16 @@ services:
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
       - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
       - CLOUD_CONNECTOR_LOG_LEVEL=${SERVICEWARE_LOG_LEVEL:-info}
+      - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
+      - CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml
 
-      # Function mode: path to the functions directory
-      - CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions
-
-      # Your secrets (from the .env file)
-      - API_TOKEN=${API_TOKEN}
+      # Forwarding target and credentials (from the .env file)
       - INTERNAL_API_URL=${INTERNAL_API_URL}
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
 
     volumes:
-      # Functions directory (read-only)
-      - ./functions:/functions:ro
+      # Declarative forwarding configuration (read-only)
+      - ./forwarding.yml:/config/forwarding.yml:ro
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]

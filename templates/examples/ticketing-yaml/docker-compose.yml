@@ -1,5 +1,5 @@
-# Ticketing Integration Deployment (YAML Functions)
-# ================================================
+# Ticketing Integration Deployment (YAML forwarding)
+# ==================================================
 #
 # Start: docker-compose up -d
 # Logs:    docker-compose logs -f
@@ -7,7 +7,7 @@
 
 services:
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:latest
+    image: ghcr.io/serviceware/cloud-connector:3.0.0
     container_name: ticketing-cloud-connector
     restart: always
     ports:
@@ -19,17 +19,16 @@ services:
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
       - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
       - CLOUD_CONNECTOR_LOG_LEVEL=${SERVICEWARE_LOG_LEVEL:-info}
+      - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
+      - CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml
 
-      # Function mode: path to the functions directory
-      - CLOUD_CONNECTOR_FUNCTIONS_DIR=/functions
-
-      # Ticketing API configuration (available to YAML functions)
+      # Ticketing API configuration referenced by forwarding.yml
       - TICKET_API_URL=${TICKET_API_URL}
       - TICKET_API_TOKEN=${TICKET_API_TOKEN}
 
     volumes:
-      # Functions directory (YAML and/or TypeScript)
-      - ./functions:/functions:ro
+      # Single declarative forwarding configuration (read-only)
+      - ./forwarding.yml:/config/forwarding.yml:ro
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]

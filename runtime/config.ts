@@ -7,7 +7,8 @@ export type ConnectorConfig = {
   cloudConnectorHost?: string;
   cloudConnectorClientId?: string;
   cloudConnectorClientSecret?: string;
-  functionsDir: string;
+  /** Path to the single declarative YAML forwarding configuration. */
+  forwardingConfigFile: string;
   heartbeatIntervalMs: number;
   reconnectInitialDelayMs: number;
   reconnectMaxDelayMs: number;
@@ -29,10 +30,12 @@ export type ConnectorConfig = {
   livenessStaleMs: number;
   /** Runtime log verbosity. */
   logLevel: LogLevel;
+  /** Regular expressions that allow workload HTTP requests by absolute URL. */
+  outboundUrlAllowlist: readonly string[];
 };
 
 const defaultPort = 8080;
-const defaultFunctionsDir = "functions";
+const defaultForwardingConfigFile = "forwarding.yml";
 const defaultHeartbeatSeconds = 30;
 const defaultReconnectInitialSeconds = 1;
 const defaultReconnectMaxSeconds = 30;
@@ -99,8 +102,9 @@ export function loadConfig(
     cloudConnectorHost,
     cloudConnectorClientId,
     cloudConnectorClientSecret,
-    functionsDir: readOptionalPath(env.CLOUD_CONNECTOR_FUNCTIONS_DIR) ??
-      defaultFunctionsDir,
+    forwardingConfigFile:
+      readOptionalPath(env.CLOUD_CONNECTOR_FORWARDING_CONFIG) ??
+        defaultForwardingConfigFile,
     heartbeatIntervalMs,
     reconnectInitialDelayMs: readInteger(
       env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,
@@ -135,7 +139,50 @@ export function loadConfig(
     ),
     livenessStaleMs,
     logLevel: readLogLevel(env.CLOUD_CONNECTOR_LOG_LEVEL),
+    outboundUrlAllowlist: readRegexList(
+      env.OUTBOUND_URL_ALLOWLIST,
+      "OUTBOUND_URL_ALLOWLIST",
+    ),
   };
+}
+
+function readRegexList(
+  value: string | undefined,
+  name: string,
+): readonly string[] {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(`${name} must be a JSON array of regular expressions`, {
+      cause: error,
+    });
+  }
+
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((pattern) => typeof pattern !== "string" || !pattern.trim())
+  ) {
+    throw new Error(`${name} must be a JSON array of non-empty strings`);
+  }
+
+  return parsed.map((pattern, index) => {
+    const normalized = (pattern as string).trim();
+    try {
+      new RegExp(normalized, "u");
+    } catch (error) {
+      throw new Error(
+        `${name}[${index}] is not a valid regular expression: ${normalized}`,
+        { cause: error },
+      );
+    }
+    return normalized;
+  });
 }
 
 function readLogLevel(value: string | undefined): LogLevel {
@@ -160,15 +207,16 @@ function validateLivenessWindow(
 ): void {
   // The supervision loop refreshes its liveness tick at most once per backoff
   // (while reconnecting) and once per heartbeat (while connected). The window
-  // must exceed both, or a connector that is healthy-but-idle or legitimately
-  // backing off would falsely fail /health and be killed mid-recovery.
+  // must exceed both, or a Cloud Connector that is healthy-but-idle or
+  // legitimately backing off would falsely fail /health and be killed
+  // mid-recovery.
   const minimum = Math.max(reconnectMaxDelayMs, heartbeatIntervalMs);
   if (livenessStaleMs <= minimum) {
     throw new Error(
       "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS must be greater than both " +
         "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS and " +
         "CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS so a healthy or " +
-        "recovering connector is not killed mid-recovery",
+        "recovering Cloud Connector is not killed mid-recovery",
     );
   }
 }
@@ -194,7 +242,7 @@ function validateCloudConnectorAuth(
 
   if (missingVariables.length > 0) {
     throw new Error(
-      `Cloud connector authentication requires ${missingVariables.join(", ")}`,
+      `Cloud Connector authentication requires ${missingVariables.join(", ")}`,
     );
   }
 }

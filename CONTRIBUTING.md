@@ -5,8 +5,9 @@ document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
-By participating in this project, you agree to abide by our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+Communicate respectfully and constructively. Harassment, discrimination, and
+abusive behaviour are not tolerated in project discussions, issues, reviews, or
+other collaboration spaces.
 
 ## How to Contribute
 
@@ -75,7 +76,8 @@ deno task dev
 ## Coding Standards
 
 - **TypeScript**: All code should be written in TypeScript
-- **Formatting**: Use Deno's built-in formatter (`deno fmt`)
+- **Formatting**: Preserve the established style and use Deno's formatter for
+  new standalone files
 - **Linting**: Ensure code passes `deno lint`
 - **Testing**: Write tests for new features and bug fixes
 - **Documentation**: Update documentation when changing public APIs
@@ -91,13 +93,12 @@ Use clear, descriptive commit messages:
 - `refactor:` for code refactoring
 - `chore:` for maintenance tasks
 
-Example: `feat(runtime): add support for YAML function definitions`
+Example: `feat(runtime): add a YAML forwarding option`
 
 ## Project Structure
 
 ```
 ├── runtime/          # Main runtime code
-├── sdk/              # Cloud Connector SDK
 ├── templates/        # Starter templates and examples
 ├── docs/             # Documentation
 ├── openapi/          # OpenAPI specifications

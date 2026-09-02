@@ -23,7 +23,7 @@ export type FrameSender = (frame: WritableFrame) => void | Promise<void>;
  * Handles inbound protocol frames and returns the response to send back.
  * The current wire contract is HTTP-only, but the runtime boundary is named
  * around protocol execution so additional protocol families can plug in later
- * without pretending to be HTTP functions.
+ * without coupling the wire layer to a particular forwarding implementation.
  */
 export interface ProtocolExecutor {
     execute(
