@@ -29,7 +29,7 @@ export class OutboundUrlAllowlist {
     if (!this.allows(url)) {
       throw new RuntimeError(
         "OUTBOUND_URL_NOT_ALLOWED",
-        `Outbound URL is not allowed by OUTBOUND_URL_ALLOWLIST: ${
+        `Outbound URL is not allowed by forwarding.outboundUrlAllowlist: ${
           displayUrl(url)
         }`,
       );

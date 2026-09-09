@@ -4,422 +4,434 @@ import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
 import { createLogger } from "./logger.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
 import {
-    computeBackoffDelay,
-    runCloudWebSocketClient,
+  computeBackoffDelay,
+  ReloadableWebSocketClient,
+  runCloudWebSocketClient,
 } from "./websocket-client.ts";
 
 const baseConfig: ConnectorConfig = {
-    host: "0.0.0.0",
-    port: 8080,
-    heartbeatIntervalMs: 1,
-    reconnectInitialDelayMs: 1,
-    reconnectMaxDelayMs: 1,
-    forwardingConfigFile: "forwarding.yml",
-    connectTimeoutMs: 1_000,
-    reconnectStableThresholdMs: 50,
-    heartbeatTimeoutFactor: 0,
-    tokenFetchTimeoutMs: 1_000,
-    reconnectJitterRatio: 0,
-    livenessStaleMs: 60_000,
-    logLevel: "error",
-  outboundUrlAllowlist: [],
-};
-
-const cloudAuth = {
-    websocketUrl: "wss://cloud.example/ws",
-    cloudConnectorHost: "https://cloud.example/",
-    cloudConnectorClientId: "client-id",
-    cloudConnectorClientSecret: "client-secret",
+  websocketUrl: "wss://cloud.example/ws",
+  cloudConnectorHost: "https://cloud.example/",
+  cloudConnectorClientId: "client-id",
+  cloudConnectorClientSecret: "client-secret",
+  heartbeatIntervalMs: 1,
+  reconnectInitialDelayMs: 1,
+  reconnectMaxDelayMs: 1,
+  connectTimeoutMs: 1_000,
+  reconnectStableThresholdMs: 50,
+  heartbeatTimeoutFactor: 0,
+  tokenFetchTimeoutMs: 1_000,
+  reconnectJitterRatio: 0,
+  livenessStaleMs: 60_000,
+  logLevel: "error",
+  forwarding: {
+    target: "https://internal.example",
+    outboundUrlAllowlist: [],
+  },
 };
 
 const silentLogger = createLogger("error", {
-    debug: () => undefined,
-    error: () => undefined,
-    info: () => undefined,
-    warn: () => undefined,
+  debug: () => undefined,
+  error: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
 });
 
 Deno.test("computeBackoffDelay is deterministic with no jitter and grows then saturates", () => {
-    const initial = 1_000;
-    const max = 30_000;
+  const initial = 1_000;
+  const max = 30_000;
 
-    assertEquals(computeBackoffDelay(0, initial, max, 0), 0);
-    assertEquals(computeBackoffDelay(1, initial, max, 0), 1_000);
-    assertEquals(computeBackoffDelay(2, initial, max, 0), 2_000);
-    assertEquals(computeBackoffDelay(3, initial, max, 0), 4_000);
-    // Saturates at max and never overflows for huge attempt counts.
-    assertEquals(computeBackoffDelay(100, initial, max, 0), 30_000);
-    assert(Number.isFinite(computeBackoffDelay(1_000, initial, max, 0)));
+  assertEquals(computeBackoffDelay(0, initial, max, 0), 0);
+  assertEquals(computeBackoffDelay(1, initial, max, 0), 1_000);
+  assertEquals(computeBackoffDelay(2, initial, max, 0), 2_000);
+  assertEquals(computeBackoffDelay(3, initial, max, 0), 4_000);
+  // Saturates at max and never overflows for huge attempt counts.
+  assertEquals(computeBackoffDelay(100, initial, max, 0), 30_000);
+  assert(Number.isFinite(computeBackoffDelay(1_000, initial, max, 0)));
 });
 
 Deno.test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]", () => {
-    const initial = 1_000;
-    const max = 30_000;
-    const ratio = 0.5;
+  const initial = 1_000;
+  const max = 30_000;
+  const ratio = 0.5;
 
-    for (const rng of [() => 0, () => 0.5, () => 0.999]) {
-        const value = computeBackoffDelay(3, initial, max, ratio, rng);
-        const cap = 4_000;
-        assert(value >= cap * (1 - ratio), `${value} below floor`);
-        assert(value <= cap, `${value} above cap`);
-    }
+  for (const rng of [() => 0, () => 0.5, () => 0.999]) {
+    const value = computeBackoffDelay(3, initial, max, ratio, rng);
+    const cap = 4_000;
+    assert(value >= cap * (1 - ratio), `${value} below floor`);
+    assert(value <= cap, `${value} above cap`);
+  }
 
-    // rng() === 0 yields the floor; full jitter ratio yields [0, cap].
-    assertEquals(computeBackoffDelay(1, initial, max, 1, () => 0), 0);
-    assertEquals(computeBackoffDelay(1, initial, max, 1, () => 1), 1_000);
-});
-
-Deno.test("runCloudWebSocketClient returns without opening a socket when no URL is configured", async () => {
-    const originalWebSocket = globalThis.WebSocket;
-    Object.defineProperty(globalThis, "WebSocket", {
-        configurable: true,
-        value: class ThrowingWebSocket {
-            constructor() {
-                throw new Error("WebSocket should not be created");
-            }
-        },
-    });
-
-    try {
-        await runCloudWebSocketClient(
-            baseConfig,
-            createRuntime(),
-            new AbortController().signal,
-        );
-    } finally {
-        Object.defineProperty(globalThis, "WebSocket", {
-            configurable: true,
-            value: originalWebSocket,
-        });
-    }
+  // rng() === 0 yields the floor; full jitter ratio yields [0, cap].
+  assertEquals(computeBackoffDelay(1, initial, max, 1, () => 0), 0);
+  assertEquals(computeBackoffDelay(1, initial, max, 1, () => 1), 1_000);
 });
 
 Deno.test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes on abort", async () => {
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "open";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            { ...baseConfig, ...cloudAuth },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      baseConfig,
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
 
-        await waitUntil(() => FakeWebSocket.instances[0]?.sent.length > 0);
-        const socket = FakeWebSocket.instances[0];
-        abortController.abort();
-        await client;
+    await waitUntil(() => FakeWebSocket.instances[0]?.sent.length > 0);
+    const socket = FakeWebSocket.instances[0];
+    abortController.abort();
+    await client;
 
-        assertEquals(socket.url, "wss://cloud.example/ws");
-        assertEquals(socket.options?.headers?.Authorization, "Bearer access-token");
-        assertEquals(socket.closed, true);
-        assertEquals(JSON.parse(socket.sent[0]).type, "heartbeat");
-    });
+    assertEquals(socket.url, "wss://cloud.example/ws");
+    assertEquals(socket.options?.headers?.Authorization, "Bearer access-token");
+    assertEquals(socket.closed, true);
+    assertEquals(JSON.parse(socket.sent[0]).type, "heartbeat");
+  });
 });
 
-Deno.test("runCloudWebSocketClient never rejects when opening keeps failing", async () => {
-    // websocketUrl is set but auth config is missing => openWebSocket throws on
-    // every attempt. The loop must absorb it and keep retrying, never reject.
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "open";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            { ...baseConfig, websocketUrl: cloudAuth.websocketUrl },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const abortController = new AbortController();
+    const client = new ReloadableWebSocketClient(
+      baseConfig,
+      createRuntime(),
+      status,
+      silentLogger,
+    );
+    const running = client.run(abortController.signal);
 
-        await waitUntil(() => status.reconnectAttempt >= 2);
-        abortController.abort();
-        // Resolves (does not throw) => the supervision loop is uncrashable.
-        await client;
-        assertEquals(FakeWebSocket.instances.length, 0);
+    await waitUntil(() => FakeWebSocket.instances.length === 1);
+    client.replace({
+      ...baseConfig,
+      websocketUrl: "wss://cloud.example/reloaded",
+      heartbeatIntervalMs: 5,
     });
+    await waitUntil(() => FakeWebSocket.instances.length === 2);
+
+    assertEquals(FakeWebSocket.instances[0].closed, true);
+    assertEquals(
+      FakeWebSocket.instances[1].url,
+      "wss://cloud.example/reloaded",
+    );
+
+    client.replace({
+      ...baseConfig,
+      websocketUrl: "wss://cloud.example/reloaded",
+      heartbeatIntervalMs: 5,
+      forwarding: {
+        ...baseConfig.forwarding,
+        target: "https://replacement.example",
+      },
+    });
+    await delayMs(10);
+    assertEquals(FakeWebSocket.instances.length, 2);
+
+    abortController.abort();
+    await running;
+  });
+});
+
+Deno.test("runCloudWebSocketClient never rejects when authentication keeps failing", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, cloudConnectorHost: "https://unavailable.example" },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
+
+    await waitUntil(() => status.reconnectAttempt >= 2);
+    abortController.abort();
+    // Resolves (does not throw) => the supervision loop is uncrashable.
+    await client;
+    assertEquals(FakeWebSocket.instances.length, 0);
+  });
 });
 
 Deno.test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-flap)", async () => {
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "openThenClose";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            { ...baseConfig, ...cloudAuth, reconnectStableThresholdMs: 10_000 },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "openThenClose";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, reconnectStableThresholdMs: 10_000 },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
 
-        // Each instant open/close must increment the attempt counter rather than
-        // resetting it to zero (which would cause a tight reconnect storm).
-        await waitUntil(() => status.reconnectAttempt >= 3, 400);
-        abortController.abort();
-        await client;
-        assert(status.reconnectAttempt >= 3);
-        assert(FakeWebSocket.instances.length >= 3);
-    });
+    // Each instant open/close must increment the attempt counter rather than
+    // resetting it to zero (which would cause a tight reconnect storm).
+    await waitUntil(() => status.reconnectAttempt >= 3, 400);
+    abortController.abort();
+    await client;
+    assert(status.reconnectAttempt >= 3);
+    assert(FakeWebSocket.instances.length >= 3);
+  });
 });
 
 Deno.test("runCloudWebSocketClient force-closes a half-open socket via the watchdog", async () => {
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "openSilent";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            {
-                ...baseConfig,
-                ...cloudAuth,
-                heartbeatIntervalMs: 5,
-                heartbeatTimeoutFactor: 2,
-            },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "openSilent";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      {
+        ...baseConfig,
+        heartbeatIntervalMs: 5,
+        heartbeatTimeoutFactor: 2,
+      },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
 
-        // A silent (no inbound) socket is force-closed and reconnected.
-        await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
-        abortController.abort();
-        await client;
-        assertEquals(FakeWebSocket.instances[0].closed, true);
-    });
+    // A silent (no inbound) socket is force-closed and reconnected.
+    await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
+    abortController.abort();
+    await client;
+    assertEquals(FakeWebSocket.instances[0].closed, true);
+  });
 });
 
 Deno.test("runCloudWebSocketClient keeps a socket with inbound traffic open", async () => {
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "openWithInbound";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            {
-                ...baseConfig,
-                ...cloudAuth,
-                heartbeatIntervalMs: 5,
-                heartbeatTimeoutFactor: 2,
-            },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "openWithInbound";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      {
+        ...baseConfig,
+        heartbeatIntervalMs: 5,
+        heartbeatTimeoutFactor: 2,
+      },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
 
-        await waitUntil(() => status.connectionState === "open");
-        // Let several watchdog windows elapse while inbound frames keep arriving.
-        await delayMs(60);
-        assertEquals(FakeWebSocket.instances.length, 1);
-        assertEquals(FakeWebSocket.instances[0].closed, false);
+    await waitUntil(() => status.connectionState === "open");
+    // Let several watchdog windows elapse while inbound frames keep arriving.
+    await delayMs(60);
+    assertEquals(FakeWebSocket.instances.length, 1);
+    assertEquals(FakeWebSocket.instances[0].closed, false);
 
-        abortController.abort();
-        await client;
-    });
+    abortController.abort();
+    await client;
+  });
 });
 
 Deno.test("runCloudWebSocketClient retries when the socket never opens (connect timeout)", async () => {
-    await withFakeCloud(async ({ status }) => {
-        FakeWebSocket.behavior = "neverOpen";
-        const abortController = new AbortController();
-        const client = runCloudWebSocketClient(
-            { ...baseConfig, ...cloudAuth, connectTimeoutMs: 10 },
-            createRuntime(),
-            abortController.signal,
-            status,
-            silentLogger,
-        );
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "neverOpen";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, connectTimeoutMs: 10 },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
 
-        await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
-        abortController.abort();
-        await client;
-        assertEquals(FakeWebSocket.instances[0].closed, true);
-    });
+    await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
+    abortController.abort();
+    await client;
+    assertEquals(FakeWebSocket.instances[0].closed, true);
+  });
 });
 
 Deno.test("runCloudWebSocketClient does not hang when aborted during the token fetch", async () => {
-    const originalFetch = globalThis.fetch;
-    const originalWebSocket = globalThis.WebSocket;
-    const abortController = new AbortController();
-    Object.defineProperty(globalThis, "fetch", {
-        configurable: true,
-        value: (input: string | URL | Request) => {
-            const url = input instanceof Request ? input.url : input.toString();
-            if (url === "https://cloud.example/.well-known") {
-                // Shutdown arrives while the token is still being fetched.
-                abortController.abort();
-                return Promise.resolve(Response.json({
-                    auth: { issuer: "https://auth.example/realms/serviceware" },
-                }));
-            }
-            return Promise.resolve(Response.json({ access_token: "access-token" }));
-        },
-    });
-    FakeWebSocket.instances = [];
-    FakeWebSocket.behavior = "open";
-    Object.defineProperty(globalThis, "WebSocket", {
-        configurable: true,
-        value: FakeWebSocket,
-    });
+  const originalFetch = globalThis.fetch;
+  const originalWebSocket = globalThis.WebSocket;
+  const abortController = new AbortController();
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: (input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url === "https://cloud.example/.well-known") {
+        // Shutdown arrives while the token is still being fetched.
+        abortController.abort();
+        return Promise.resolve(Response.json({
+          auth: { issuer: "https://auth.example/realms/serviceware" },
+        }));
+      }
+      return Promise.resolve(Response.json({ access_token: "access-token" }));
+    },
+  });
+  FakeWebSocket.instances = [];
+  FakeWebSocket.behavior = "open";
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    value: FakeWebSocket,
+  });
 
-    try {
-        // Must resolve promptly (not hang) and must not open a socket.
-        await runCloudWebSocketClient(
-            { ...baseConfig, ...cloudAuth },
-            createRuntime(),
-            abortController.signal,
-            createRuntimeStatus(),
-            silentLogger,
-        );
-        assertEquals(FakeWebSocket.instances.length, 0);
-    } finally {
-        Object.defineProperty(globalThis, "fetch", {
-            configurable: true,
-            value: originalFetch,
-        });
-        Object.defineProperty(globalThis, "WebSocket", {
-            configurable: true,
-            value: originalWebSocket,
-        });
-    }
+  try {
+    // Must resolve promptly (not hang) and must not open a socket.
+    await runCloudWebSocketClient(
+      baseConfig,
+      createRuntime(),
+      abortController.signal,
+      createRuntimeStatus(),
+      silentLogger,
+    );
+    assertEquals(FakeWebSocket.instances.length, 0);
+  } finally {
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: originalFetch,
+    });
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: originalWebSocket,
+    });
+  }
 });
 
 function createRuntime(): ConnectorRuntime {
-    return new ConnectorRuntime({
-        protocolExecutor: {
-            execute: () => Promise.resolve({ statusCode: 204 }),
-        } as unknown as ProtocolExecutor,
-        logger: silentLogger,
-    });
+  return new ConnectorRuntime({
+    protocolExecutor: {
+      execute: () => Promise.resolve({ statusCode: 204 }),
+    } as unknown as ProtocolExecutor,
+    logger: silentLogger,
+  });
 }
 
 /** Stubs fetch (token endpoint) and WebSocket, restoring them afterwards. */
 async function withFakeCloud(
-    run: (
-        ctx: { status: ReturnType<typeof createRuntimeStatus> },
-    ) => Promise<void>,
+  run: (
+    ctx: { status: ReturnType<typeof createRuntimeStatus> },
+  ) => Promise<void>,
 ): Promise<void> {
-    const originalFetch = globalThis.fetch;
-    const originalWebSocket = globalThis.WebSocket;
-    Object.defineProperty(globalThis, "fetch", {
-        configurable: true,
-        value: (input: string | URL | Request) => {
-            const url = input instanceof Request ? input.url : input.toString();
-            if (url === "https://cloud.example/.well-known") {
-                return Promise.resolve(Response.json({
-                    auth: { issuer: "https://auth.example/realms/serviceware" },
-                }));
-            }
-            if (
-                url ===
-                "https://auth.example/realms/serviceware/protocol/openid-connect/token"
-            ) {
-                return Promise.resolve(
-                    Response.json({ access_token: "access-token" }),
-                );
-            }
-            return Promise.resolve(new Response(null, { status: 404 }));
-        },
-    });
-    FakeWebSocket.instances = [];
-    FakeWebSocket.behavior = "open";
-    Object.defineProperty(globalThis, "WebSocket", {
-        configurable: true,
-        value: FakeWebSocket,
-    });
+  const originalFetch = globalThis.fetch;
+  const originalWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: (input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url === "https://cloud.example/.well-known") {
+        return Promise.resolve(Response.json({
+          auth: { issuer: "https://auth.example/realms/serviceware" },
+        }));
+      }
+      if (
+        url ===
+          "https://auth.example/realms/serviceware/protocol/openid-connect/token"
+      ) {
+        return Promise.resolve(
+          Response.json({ access_token: "access-token" }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    },
+  });
+  FakeWebSocket.instances = [];
+  FakeWebSocket.behavior = "open";
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    value: FakeWebSocket,
+  });
 
-    try {
-        await run({ status: createRuntimeStatus() });
-    } finally {
-        Object.defineProperty(globalThis, "fetch", {
-            configurable: true,
-            value: originalFetch,
-        });
-        Object.defineProperty(globalThis, "WebSocket", {
-            configurable: true,
-            value: originalWebSocket,
-        });
-    }
+  try {
+    await run({ status: createRuntimeStatus() });
+  } finally {
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: originalFetch,
+    });
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: originalWebSocket,
+    });
+  }
 }
 
 function delayMs(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitUntil(
-    condition: () => boolean,
-    maxAttempts = 100,
+  condition: () => boolean,
+  maxAttempts = 100,
 ): Promise<void> {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (condition()) {
-            return;
-        }
-        await delayMs(1);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (condition()) {
+      return;
     }
+    await delayMs(1);
+  }
 
-    throw new Error("Condition was not met in time");
+  throw new Error("Condition was not met in time");
 }
 
 type FakeBehavior =
-    | "open"
-    | "openThenClose"
-    | "openSilent"
-    | "openWithInbound"
-    | "neverOpen";
+  | "open"
+  | "openThenClose"
+  | "openSilent"
+  | "openWithInbound"
+  | "neverOpen";
 
 class FakeWebSocket extends EventTarget {
-    static readonly CONNECTING = 0;
-    static readonly OPEN = 1;
-    static readonly CLOSING = 2;
-    static readonly CLOSED = 3;
-    static instances: FakeWebSocket[] = [];
-    static behavior: FakeBehavior = "open";
-    readonly sent: string[] = [];
-    readonly url: string;
-    readonly options?: { headers?: Record<string, string> };
-    readyState = FakeWebSocket.OPEN;
-    closed = false;
-    #inboundTimer: ReturnType<typeof setInterval> | undefined;
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  static instances: FakeWebSocket[] = [];
+  static behavior: FakeBehavior = "open";
+  readonly sent: string[] = [];
+  readonly url: string;
+  readonly options?: { headers?: Record<string, string> };
+  readyState = FakeWebSocket.OPEN;
+  closed = false;
+  #inboundTimer: ReturnType<typeof setInterval> | undefined;
 
-    constructor(url: string, options?: { headers?: Record<string, string> }) {
-        super();
-        this.url = url;
-        this.options = options;
-        FakeWebSocket.instances.push(this);
-        const behavior = FakeWebSocket.behavior;
-        if (behavior === "neverOpen") {
-            this.readyState = FakeWebSocket.CONNECTING;
-            return;
-        }
-
-        queueMicrotask(() => {
-            this.dispatchEvent(new Event("open"));
-            if (behavior === "openThenClose") {
-                this.close();
-            } else if (behavior === "openWithInbound") {
-                this.#inboundTimer = setInterval(
-                    () => this.receive('{"type":"heartbeat"}'),
-                    1,
-                );
-            }
-        });
+  constructor(url: string, options?: { headers?: Record<string, string> }) {
+    super();
+    this.url = url;
+    this.options = options;
+    FakeWebSocket.instances.push(this);
+    const behavior = FakeWebSocket.behavior;
+    if (behavior === "neverOpen") {
+      this.readyState = FakeWebSocket.CONNECTING;
+      return;
     }
 
-    send(data: string): void {
-        this.sent.push(data);
-    }
+    queueMicrotask(() => {
+      this.dispatchEvent(new Event("open"));
+      if (behavior === "openThenClose") {
+        this.close();
+      } else if (behavior === "openWithInbound") {
+        this.#inboundTimer = setInterval(
+          () => this.receive('{"type":"heartbeat"}'),
+          1,
+        );
+      }
+    });
+  }
 
-    receive(data: string): void {
-        this.dispatchEvent(new MessageEvent("message", { data }));
-    }
+  send(data: string): void {
+    this.sent.push(data);
+  }
 
-    close(): void {
-        if (this.closed) {
-            return;
-        }
-        this.closed = true;
-        this.readyState = FakeWebSocket.CLOSED;
-        if (this.#inboundTimer !== undefined) {
-            clearInterval(this.#inboundTimer);
-            this.#inboundTimer = undefined;
-        }
-        this.dispatchEvent(new Event("close"));
+  receive(data: string): void {
+    this.dispatchEvent(new MessageEvent("message", { data }));
+  }
+
+  close(): void {
+    if (this.closed) {
+      return;
     }
+    this.closed = true;
+    this.readyState = FakeWebSocket.CLOSED;
+    if (this.#inboundTimer !== undefined) {
+      clearInterval(this.#inboundTimer);
+      this.#inboundTimer = undefined;
+    }
+    this.dispatchEvent(new Event("close"));
+  }
 }

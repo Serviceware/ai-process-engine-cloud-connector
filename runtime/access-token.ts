@@ -1,89 +1,92 @@
 export type AccessTokenOptions = {
-    host: string;
-    clientId: string;
-    clientSecret: string;
-    /** Timeout in ms for each token-related fetch (default 10s). */
-    timeoutMs?: number;
-    /** External signal (e.g. shutdown) that aborts the fetches promptly. */
-    signal?: AbortSignal;
-    /** HTTP implementation used by the Cloud Connector control plane. */
-    fetcher?: typeof globalThis.fetch;
+  host: string;
+  clientId: string;
+  clientSecret: string;
+  /** Timeout in ms for each token-related fetch (default 10s). */
+  timeoutMs?: number;
+  /** External signal (e.g. shutdown) that aborts the fetches promptly. */
+  signal?: AbortSignal;
+  /** HTTP implementation used by the Cloud Connector control plane. */
+  fetcher?: typeof globalThis.fetch;
 };
 
 const defaultTokenFetchTimeoutMs = 10_000;
 
 /** Combines the per-fetch timeout with an optional external abort signal. */
 function fetchSignal(
-    timeoutMs: number,
-    external?: AbortSignal,
+  timeoutMs: number,
+  external?: AbortSignal,
 ): AbortSignal {
-    const timeout = AbortSignal.timeout(timeoutMs);
-    return external ? AbortSignal.any([timeout, external]) : timeout;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return external ? AbortSignal.any([timeout, external]) : timeout;
 }
 
 type WellKnownConfiguration = {
-    auth?: {
-        issuer?: unknown;
-    };
+  auth?: {
+    issuer?: unknown;
+  };
 };
 
 type TokenResponse = {
-    access_token?: unknown;
+  access_token?: unknown;
 };
 
 export async function generateAccessToken(
-    options: AccessTokenOptions,
+  options: AccessTokenOptions,
 ): Promise<string> {
-    const timeoutMs = options.timeoutMs ?? defaultTokenFetchTimeoutMs;
-    const fetcher = options.fetcher ?? globalThis.fetch;
-    const wellKnownResponse = await fetcher(joinUrl(options.host, ".well-known"), {
-        signal: fetchSignal(timeoutMs, options.signal),
-    });
-    if (!wellKnownResponse.ok) {
-        throw new Error(
-            `Failed to fetch well-known configuration: ${wellKnownResponse.statusText}`,
-        );
-    }
-
-    const wellKnown = await wellKnownResponse.json() as WellKnownConfiguration;
-    const authEndpoint = typeof wellKnown.auth?.issuer === "string"
-        ? wellKnown.auth.issuer
-        : undefined;
-    if (!authEndpoint) {
-        throw new Error(
-            "Authentication endpoint not found in well-known configuration.",
-        );
-    }
-
-    const tokenResponse = await fetcher(
-        joinUrl(authEndpoint, "protocol/openid-connect/token"),
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({
-                grant_type: "client_credentials",
-                client_id: options.clientId,
-                client_secret: options.clientSecret,
-            }),
-            signal: fetchSignal(timeoutMs, options.signal),
-        },
+  const timeoutMs = options.timeoutMs ?? defaultTokenFetchTimeoutMs;
+  const fetcher = options.fetcher ?? globalThis.fetch;
+  const wellKnownResponse = await fetcher(
+    joinUrl(options.host, ".well-known"),
+    {
+      signal: fetchSignal(timeoutMs, options.signal),
+    },
+  );
+  if (!wellKnownResponse.ok) {
+    throw new Error(
+      `Failed to fetch well-known configuration: ${wellKnownResponse.statusText}`,
     );
-    if (!tokenResponse.ok) {
-        throw new Error(
-            `Failed to obtain access token: ${tokenResponse.statusText}`,
-        );
-    }
+  }
 
-    const tokenData = await tokenResponse.json() as TokenResponse;
-    if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
-        throw new Error("Access token not found in token response.");
-    }
+  const wellKnown = await wellKnownResponse.json() as WellKnownConfiguration;
+  const authEndpoint = typeof wellKnown.auth?.issuer === "string"
+    ? wellKnown.auth.issuer
+    : undefined;
+  if (!authEndpoint) {
+    throw new Error(
+      "Authentication endpoint not found in well-known configuration.",
+    );
+  }
 
-    return tokenData.access_token;
+  const tokenResponse = await fetcher(
+    joinUrl(authEndpoint, "protocol/openid-connect/token"),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: options.clientId,
+        client_secret: options.clientSecret,
+      }),
+      signal: fetchSignal(timeoutMs, options.signal),
+    },
+  );
+  if (!tokenResponse.ok) {
+    throw new Error(
+      `Failed to obtain access token: ${tokenResponse.statusText}`,
+    );
+  }
+
+  const tokenData = await tokenResponse.json() as TokenResponse;
+  if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
+    throw new Error("Access token not found in token response.");
+  }
+
+  return tokenData.access_token;
 }
 
 function joinUrl(base: string, path: string): string {
-    return base.replace(/\/+$/, "") + "/" + path.replace(/^\/+/, "");
+  return base.replace(/\/+$/, "") + "/" + path.replace(/^\/+/, "");
 }

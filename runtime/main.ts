@@ -1,12 +1,24 @@
-import type { ConnectorConfig } from "./config.ts";
-import { loadConfig } from "./config.ts";
-import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
-import type { RuntimeLogger } from "./logger.ts";
-import { createLogger } from "./logger.ts";
+import { ConfigReloader, watchConfigFile } from "./config-reloader.ts";
+import {
+  combineConfig,
+  type ConnectorConfig,
+  connectorListenHost,
+  connectorListenPort,
+  defaultConfigPath,
+  type EnvironmentConfig,
+  loadEnvironmentConfig,
+  loadVolumeConfig,
+} from "./config.ts";
+import {
+  ConnectorRuntime,
+  type ProtocolExecutor,
+  ReloadableProtocolExecutor,
+} from "./connector.ts";
+import type { ReloadableRuntimeLogger, RuntimeLogger } from "./logger.ts";
+import { createLogger, createReloadableLogger } from "./logger.ts";
 import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
-import { RuntimeError } from "./runtime-error.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
-import { delay, runCloudWebSocketClient } from "./websocket-client.ts";
+import { delay, ReloadableWebSocketClient } from "./websocket-client.ts";
 import { createYamlForwardingExecutor } from "./yaml-forwarding.ts";
 
 /** Exit codes (sysexits.h) so a supervisor can distinguish failure modes. */
@@ -15,277 +27,283 @@ const EX_OSERR = 71;
 const EX_CONFIG = 78;
 
 export function createProtocolExecutor(
-    config: ConnectorConfig,
-    logger: RuntimeLogger = createLogger(config.logLevel),
+  config: ConnectorConfig,
+  configPath: string,
+  logger: RuntimeLogger = createLogger(config.logLevel),
 ): Promise<ProtocolExecutor> {
-    return createYamlForwardingExecutor({ config, logger });
+  return createYamlForwardingExecutor({ config, configPath, logger });
 }
 
 export type RuntimeBundle = {
-    runtime: ConnectorRuntime;
-    protocolExecutor: ProtocolExecutor;
+  runtime: ConnectorRuntime;
+  protocolExecutor: ReloadableProtocolExecutor;
 };
 
 export async function createRuntimeBundle(
-    config: ConnectorConfig,
-    logger: RuntimeLogger = createLogger(config.logLevel),
+  config: ConnectorConfig,
+  configPath: string,
+  logger: RuntimeLogger = createLogger(config.logLevel),
 ): Promise<RuntimeBundle> {
-    logger.info("Starting Cloud Connector runtime");
-    const protocolExecutor = await createProtocolExecutor(config, logger);
-    const runtime = new ConnectorRuntime({
-        protocolExecutor,
-        logger,
-    });
-    return { runtime, protocolExecutor };
+  logger.info("Starting Cloud Connector forward proxy");
+  const initialExecutor = await createProtocolExecutor(
+    config,
+    configPath,
+    logger,
+  );
+  const protocolExecutor = new ReloadableProtocolExecutor(initialExecutor);
+  const runtime = new ConnectorRuntime({ protocolExecutor, logger });
+  return { runtime, protocolExecutor };
 }
 
 export async function createRuntime(
-    config: ConnectorConfig,
-    logger: RuntimeLogger = createLogger(config.logLevel),
+  config: ConnectorConfig,
+  configPath: string,
+  logger: RuntimeLogger = createLogger(config.logLevel),
 ): Promise<ConnectorRuntime> {
-    return (await createRuntimeBundle(config, logger)).runtime;
+  return (await createRuntimeBundle(config, configPath, logger)).runtime;
 }
 
 export function createHandler(
-    runtime: ConnectorRuntime,
-    config: ConnectorConfig,
-    status: RuntimeStatus,
-    now: () => number = Date.now,
+  environment: EnvironmentConfig,
+  status: RuntimeStatus,
+  now: () => number = Date.now,
 ): (request: Request) => Response {
-    return (request) => {
-        const url = new URL(request.url);
+  return (request) => {
+    const url = new URL(request.url);
 
-        // Liveness: the process is recoverable. Fails ONLY when the supervision
-        // loop has gone stale (truly wedged) — NOT merely while reconnecting.
-        if (url.pathname === "/health") {
-            const stale = now() - status.lastTickAt > config.livenessStaleMs;
-            if (stale) {
-                return Response.json(
-                    { status: "unhealthy", reason: "supervision loop stalled" },
-                    { status: 503 },
-                );
-            }
-            return Response.json({ status: "ok" });
-        }
+    // Liveness covers the in-process supervision loop, not cloud availability.
+    if (url.pathname === "/health") {
+      const stale = now() - status.lastTickAt > environment.livenessStaleMs;
+      if (stale) {
+        return Response.json(
+          { status: "unhealthy", reason: "supervision loop stalled" },
+          { status: 503 },
+        );
+      }
+      return Response.json({ status: "ok" });
+    }
 
-        // Readiness: the cloud connection is usable right now. 503 while
-        // disconnected/reconnecting de-routes traffic without killing the process.
-        if (url.pathname === "/ready") {
-            const websocketConfigured = config.websocketUrl !== undefined;
-            const websocketConnected = status.connectionState === "open";
-            // With no WS configured the Cloud Connector is a pure HTTP service => ready.
-            const ready = !websocketConfigured || websocketConnected;
-            return Response.json(
-                {
-                    status: ready ? "ready" : "not_ready",
-                    websocketConfigured,
-                    websocketConnected,
-                },
-                { status: ready ? 200 : 503 },
-            );
-        }
+    // The forward proxy is ready only while its outbound cloud socket is open.
+    if (url.pathname === "/ready") {
+      const websocketConnected = status.connectionState === "open";
+      return Response.json(
+        {
+          status: websocketConnected ? "ready" : "not_ready",
+          websocketConnected,
+        },
+        { status: websocketConnected ? 200 : 503 },
+      );
+    }
 
-        if (url.pathname === "/ws") {
-            if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-                return new Response("WebSocket upgrade required", { status: 426 });
-            }
-
-            const { socket, response } = Deno.upgradeWebSocket(request);
-            runtime.attachWebSocket(socket);
-            return response;
-        }
-
-        return new Response("Not found", { status: 404 });
-    };
+    return new Response("Not found", { status: 404 });
+  };
 }
 
 /**
- * Runs `factory` and restarts it (with a small backoff) if it ever settles or
- * throws while the signal is not aborted. The WS client already loops forever
- * internally; this is the outer safety net guaranteeing it is never left dead.
+ * Runs a task forever and recreates it if it fails while the process is live.
  */
 async function superviseTask(
-    name: string,
-    factory: () => Promise<void>,
-    signal: AbortSignal,
-    logger: RuntimeLogger,
+  name: string,
+  factory: () => Promise<void>,
+  signal: AbortSignal,
+  logger: RuntimeLogger,
 ): Promise<void> {
-    while (!signal.aborted) {
-        try {
-            await factory();
-        } catch (error) {
-            logger.error(`Task "${name}" crashed`, error);
-        }
-        if (signal.aborted) break;
-        logger.error(`Task "${name}" exited unexpectedly; restarting`);
-        await delay(1_000, signal);
+  while (!signal.aborted) {
+    try {
+      await factory();
+    } catch (error) {
+      logger.error(`Task "${name}" crashed`, error);
     }
+    if (signal.aborted) break;
+    logger.error(`Task "${name}" exited unexpectedly; restarting`);
+    await delay(1_000, signal);
+  }
 }
 
-/**
- * Binds the HTTP server and rebinds it if it ever stops unexpectedly. The first
- * bind is the caller's responsibility (fatal); this supervises rebinds only.
- */
+/** Rebinds the fixed local probe server if it stops unexpectedly. */
 async function superviseHttpServer(
-    initial: Deno.HttpServer,
-    config: ConnectorConfig,
-    handler: (request: Request) => Response,
-    signal: AbortSignal,
-    logger: RuntimeLogger,
+  initial: Deno.HttpServer,
+  handler: (request: Request) => Response,
+  signal: AbortSignal,
+  logger: RuntimeLogger,
 ): Promise<void> {
-    let server: Deno.HttpServer | undefined = initial;
-    while (!signal.aborted) {
-        if (server !== undefined) {
-            try {
-                await server.finished;
-            } catch (error) {
-                logger.error("HTTP server error", error);
-            }
-            if (signal.aborted) break;
-            logger.error("HTTP server stopped unexpectedly; rebinding");
-        }
-
-        await delay(1_000, signal);
-        if (signal.aborted) break;
-
-        try {
-            server = Deno.serve(
-                { hostname: config.host, port: config.port, signal },
-                handler,
-            );
-        } catch (error) {
-            // Do not await the stale (finished) server again on the next iteration;
-            // keep retrying the rebind on a fixed interval until it succeeds.
-            server = undefined;
-            logger.error("Failed to rebind HTTP server", error);
-        }
+  let server: Deno.HttpServer | undefined = initial;
+  while (!signal.aborted) {
+    if (server !== undefined) {
+      try {
+        await server.finished;
+      } catch (error) {
+        logger.error("HTTP server error", error);
+      }
+      if (signal.aborted) break;
+      logger.error("HTTP server stopped unexpectedly; rebinding");
     }
+
+    await delay(1_000, signal);
+    if (signal.aborted) break;
+
+    try {
+      server = Deno.serve(
+        {
+          hostname: connectorListenHost,
+          port: connectorListenPort,
+          signal,
+        },
+        handler,
+      );
+    } catch (error) {
+      server = undefined;
+      logger.error("Failed to rebind HTTP server", error);
+    }
+  }
+}
+
+function logOutboundPolicy(
+  config: ConnectorConfig,
+  logger: RuntimeLogger,
+): void {
+  const patterns = config.forwarding.outboundUrlAllowlist.length;
+  logger.info(
+    patterns === 0
+      ? "YAML outbound URL allowlist is empty; all workload HTTP requests are blocked"
+      : `YAML outbound URL allowlist active with ${patterns} pattern(s)`,
+  );
 }
 
 // Main entry point
 if (import.meta.main) {
-    // Startup latch: before startup completes, faults are fatal and visible so a
-    // broken config/bind crash-loops loudly instead of being silently absorbed.
-    // After startup, stray rejections/errors are logged and swallowed so a
-    // transient steady-state fault can never terminate the process.
-    let startupComplete = false;
-    let shuttingDown = false;
+  let startupComplete = false;
+  let shuttingDown = false;
 
-    globalThis.addEventListener("unhandledrejection", (event) => {
-        if (!startupComplete) return;
-        // preventDefault FIRST so the process survives even if logging itself
-        // throws (e.g. a broken stdout stream or a throwing error object).
-        event.preventDefault();
-        try {
-            console.error(
-                "[cloud-connector] unhandled rejection (recovered):",
-                event.reason,
-            );
-        } catch { /* never let logging terminate the process */ }
-    });
-    globalThis.addEventListener("error", (event) => {
-        if (!startupComplete) return;
-        event.preventDefault();
-        try {
-            console.error(
-                "[cloud-connector] uncaught error (recovered):",
-                event.error,
-            );
-        } catch { /* never let logging terminate the process */ }
-    });
-
-    let config: ConnectorConfig;
-    let logger: RuntimeLogger = createLogger();
+  globalThis.addEventListener("unhandledrejection", (event) => {
+    if (!startupComplete) return;
+    event.preventDefault();
     try {
-        config = loadConfig();
-        logger = createLogger(config.logLevel);
-        logger.info(
-            config.outboundUrlAllowlist.length === 0
-                ? "Outbound URL allowlist is empty; all workload HTTP requests are blocked"
-                : `Outbound URL allowlist active with ${config.outboundUrlAllowlist.length} pattern(s)`,
-        );
-    } catch (error) {
-        console.error(
-            "[cloud-connector] FATAL: invalid configuration:",
-            error instanceof Error ? error.message : error,
-        );
-        Deno.exit(EX_CONFIG);
-    }
-
-    let runtimeBundle: RuntimeBundle;
+      console.error(
+        "[cloud-connector] unhandled rejection (recovered):",
+        event.reason,
+      );
+    } catch { /* never let logging terminate the process */ }
+  });
+  globalThis.addEventListener("error", (event) => {
+    if (!startupComplete) return;
+    event.preventDefault();
     try {
-        runtimeBundle = await createRuntimeBundle(config, logger);
-    } catch (error) {
-        const configurationFailure = error instanceof RuntimeError &&
-            (error.code === "CONFIG_ERROR" || error.code === "YAML_PARSE_ERROR");
-        console.error(
-            configurationFailure
-                ? "[cloud-connector] FATAL: invalid forwarding configuration:"
-                : "[cloud-connector] FATAL: failed to initialize runtime:",
-            error,
-        );
-        Deno.exit(configurationFailure ? EX_CONFIG : EX_SOFTWARE);
-    }
+      console.error(
+        "[cloud-connector] uncaught error (recovered):",
+        event.error,
+      );
+    } catch { /* never let logging terminate the process */ }
+  });
 
-    const status = createRuntimeStatus();
-    const handler = createHandler(runtimeBundle.runtime, config, status);
-    const abortController = new AbortController();
+  const configPath = Deno.args[0] ?? defaultConfigPath;
+  let environment: EnvironmentConfig;
+  let config: ConnectorConfig;
+  let logger: ReloadableRuntimeLogger;
+  try {
+    environment = loadEnvironmentConfig();
+    config = combineConfig(environment, await loadVolumeConfig(configPath));
+    logger = createReloadableLogger(config.logLevel);
+    logOutboundPolicy(config, logger);
+  } catch (error) {
+    console.error(
+      "[cloud-connector] FATAL: invalid configuration:",
+      error instanceof Error ? error.message : error,
+    );
+    Deno.exit(EX_CONFIG);
+  }
 
-    // First HTTP bind is fatal: a port conflict is unrecoverable in-process.
-    let server: Deno.HttpServer;
-    try {
-        server = Deno.serve(
-            {
-                hostname: config.host,
-                port: config.port,
-                signal: abortController.signal,
-            },
-            handler,
-        );
-    } catch (error) {
-        console.error("[cloud-connector] FATAL: cannot bind HTTP server:", error);
-        Deno.exit(EX_OSERR);
-    }
+  let runtimeBundle: RuntimeBundle;
+  try {
+    runtimeBundle = await createRuntimeBundle(config, configPath, logger);
+  } catch (error) {
+    console.error(
+      "[cloud-connector] FATAL: failed to initialize forward proxy:",
+      error,
+    );
+    Deno.exit(EX_SOFTWARE);
+  }
 
-    const shutdown = () => {
-        if (shuttingDown) return;
-        shuttingDown = true;
-        abortController.abort();
-    };
-    Deno.addSignalListener("SIGINT", shutdown);
-    Deno.addSignalListener("SIGTERM", shutdown);
+  const status = createRuntimeStatus();
+  const abortController = new AbortController();
+  const handler = createHandler(environment, status);
+  const websocketClient = new ReloadableWebSocketClient(
+    config,
+    runtimeBundle.runtime,
+    status,
+    logger,
+    fetchWithoutOutboundUrlPolicy,
+  );
 
-    startupComplete = true;
+  const configReloader = new ConfigReloader(
+    configPath,
+    environment,
+    async (nextConfig) => {
+      // Construct every fallible component before changing live state.
+      const nextExecutor = await createProtocolExecutor(
+        nextConfig,
+        configPath,
+        logger,
+      );
 
-    // Supervisors only return on shutdown, keeping the process alive. The WS
-    // client is only supervised when a URL is configured; otherwise it returns
-    // immediately by design (pure HTTP mode) and must not be restart-looped.
-    const tasks: Promise<void>[] = [
-        superviseHttpServer(
-            server,
-            config,
-            handler,
-            abortController.signal,
-            logger,
+      runtimeBundle.protocolExecutor.replace(nextExecutor);
+      logger.setLevel(nextConfig.logLevel);
+      websocketClient.replace(nextConfig);
+      config = nextConfig;
+      logOutboundPolicy(config, logger);
+    },
+    logger,
+  );
+
+  // First bind is fatal: a port conflict is unrecoverable in-process.
+  let server: Deno.HttpServer;
+  try {
+    server = Deno.serve(
+      {
+        hostname: connectorListenHost,
+        port: connectorListenPort,
+        signal: abortController.signal,
+      },
+      handler,
+    );
+  } catch (error) {
+    console.error("[cloud-connector] FATAL: cannot bind HTTP server:", error);
+    Deno.exit(EX_OSERR);
+  }
+
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    abortController.abort();
+  };
+  Deno.addSignalListener("SIGINT", shutdown);
+  Deno.addSignalListener("SIGTERM", shutdown);
+
+  startupComplete = true;
+
+  await Promise.all([
+    superviseHttpServer(
+      server,
+      handler,
+      abortController.signal,
+      logger,
+    ),
+    superviseTask(
+      "websocket-client",
+      () => websocketClient.run(abortController.signal),
+      abortController.signal,
+      logger,
+    ),
+    superviseTask(
+      "config-watcher",
+      () =>
+        watchConfigFile(
+          configPath,
+          configReloader,
+          abortController.signal,
         ),
-    ];
-    if (config.websocketUrl) {
-        tasks.push(
-            superviseTask(
-                "websocket-client",
-                () =>
-                    runCloudWebSocketClient(
-                        config,
-                        runtimeBundle.runtime,
-                        abortController.signal,
-                        status,
-                        logger,
-                        fetchWithoutOutboundUrlPolicy,
-                    ),
-                abortController.signal,
-                logger,
-            ),
-        );
-    }
-    await Promise.all(tasks);
+      abortController.signal,
+      logger,
+    ),
+  ]);
 }

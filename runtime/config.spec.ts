@@ -1,18 +1,31 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { loadConfig } from "./config.ts";
+import {
+  combineConfig,
+  loadEnvironmentConfig,
+  parseVolumeConfig,
+} from "./config.ts";
+import { RuntimeError } from "./runtime-error.ts";
 
-Deno.test("loadConfig uses documented defaults", () => {
-  const config = loadConfig({});
+const requiredEnvironment = {
+  CLOUD_CONNECTOR_HOST: "https://cloud.example",
+  CLOUD_CONNECTOR_CLIENT_ID: "client-id",
+  CLOUD_CONNECTOR_CLIENT_SECRET: "client-secret",
+};
+
+const minimalYaml = `
+connection:
+  websocketUrl: wss://cloud.example/connector/ws
+forwarding:
+  target: https://internal.example
+`;
+
+Deno.test("loadEnvironmentConfig keeps only credentials and resilience tuning", () => {
+  const config = loadEnvironmentConfig(requiredEnvironment);
 
   assertEquals(config, {
-    host: "0.0.0.0",
-    port: 8080,
-    websocketUrl: undefined,
-    cloudConnectorHost: undefined,
-    cloudConnectorClientId: undefined,
-    cloudConnectorClientSecret: undefined,
-    forwardingConfigFile: "forwarding.yml",
-    heartbeatIntervalMs: 30_000,
+    cloudConnectorHost: "https://cloud.example/",
+    cloudConnectorClientId: "client-id",
+    cloudConnectorClientSecret: "client-secret",
     reconnectInitialDelayMs: 1_000,
     reconnectMaxDelayMs: 30_000,
     connectTimeoutMs: 10_000,
@@ -21,169 +34,193 @@ Deno.test("loadConfig uses documented defaults", () => {
     tokenFetchTimeoutMs: 10_000,
     reconnectJitterRatio: 0.5,
     livenessStaleMs: 120_000,
-    logLevel: "info",
-    outboundUrlAllowlist: [],
   });
 });
 
-Deno.test("loadConfig reads explicit values and trims optional paths", () => {
-  const config = loadConfig({
-    CONNECTOR_HOST: "127.0.0.1",
-    CONNECTOR_PORT: "9090",
-    CLOUD_CONNECTOR_WS_URL: " wss://cloud.example/ws ",
-    CLOUD_CONNECTOR_HOST: " https://cloud.example ",
-    CLOUD_CONNECTOR_CLIENT_ID: " client-id ",
-    CLOUD_CONNECTOR_CLIENT_SECRET: " client-secret ",
-    CLOUD_CONNECTOR_FORWARDING_CONFIG: " config/forwarding.yml ",
-    CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS: "5",
-    CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "2",
-    CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "9",
-    CLOUD_CONNECTOR_LOG_LEVEL: " DEBUG ",
-    OUTBOUND_URL_ALLOWLIST: '["^https://api[.]example[.]com(?:/|$)", ".*"]',
-  });
-
-  assertEquals(config.host, "127.0.0.1");
-  assertEquals(config.port, 9090);
-  assertEquals(config.websocketUrl, "wss://cloud.example/ws");
-  assertEquals(config.cloudConnectorHost, "https://cloud.example/");
-  assertEquals(config.cloudConnectorClientId, "client-id");
-  assertEquals(config.cloudConnectorClientSecret, "client-secret");
-  assertEquals(config.forwardingConfigFile, "config/forwarding.yml");
-  assertEquals(config.heartbeatIntervalMs, 5_000);
-  assertEquals(config.reconnectInitialDelayMs, 2_000);
-  assertEquals(config.reconnectMaxDelayMs, 9_000);
-  assertEquals(config.logLevel, "debug");
-  assertEquals(config.outboundUrlAllowlist, [
-    "^https://api[.]example[.]com(?:/|$)",
-    ".*",
-  ]);
-});
-
-Deno.test("loadConfig rejects malformed outbound URL allowlists", () => {
-  for (
-    const value of [
-      "not-json",
-      "{}",
-      '[""]',
-      "[42]",
-    ]
-  ) {
+Deno.test("loadEnvironmentConfig requires Cloud host and credentials", () => {
+  for (const missing of Object.keys(requiredEnvironment)) {
+    const env = { ...requiredEnvironment } as Record<
+      string,
+      string | undefined
+    >;
+    delete env[missing];
     assertThrows(
-      () => loadConfig({ OUTBOUND_URL_ALLOWLIST: value }),
+      () => loadEnvironmentConfig(env),
       Error,
-      "OUTBOUND_URL_ALLOWLIST must be a JSON array",
+      missing,
     );
   }
-
-  assertThrows(
-    () => loadConfig({ OUTBOUND_URL_ALLOWLIST: '["("]' }),
-    Error,
-    "OUTBOUND_URL_ALLOWLIST[0] is not a valid regular expression",
-  );
 });
 
-Deno.test("loadConfig rejects invalid URL values", () => {
+Deno.test("loadEnvironmentConfig validates Cloud host and resilience values", () => {
   assertThrows(
-    () => loadConfig({ CLOUD_CONNECTOR_WS_URL: "cloud.example/ws" }),
-    Error,
-    "CLOUD_CONNECTOR_WS_URL must be a valid absolute URL",
-  );
-  assertThrows(
-    () => loadConfig({ CLOUD_CONNECTOR_HOST: "wss://cloud.example" }),
+    () =>
+      loadEnvironmentConfig({
+        ...requiredEnvironment,
+        CLOUD_CONNECTOR_HOST: "wss://cloud.example",
+      }),
     Error,
     "CLOUD_CONNECTOR_HOST must use one of these protocols: http:, https:",
   );
-});
 
-Deno.test("loadConfig requires authentication settings when cloud auth is used", () => {
-  assertThrows(
-    () => loadConfig({ CLOUD_CONNECTOR_WS_URL: "wss://cloud.example/ws" }),
-    Error,
-    "Cloud Connector authentication requires CLOUD_CONNECTOR_HOST, CLOUD_CONNECTOR_CLIENT_ID, CLOUD_CONNECTOR_CLIENT_SECRET",
-  );
-});
-
-Deno.test("loadConfig rejects non-positive and non-integer numbers", () => {
   for (const value of ["0", "-1", "1.5", "abc"]) {
     assertThrows(
-      () => loadConfig({ CONNECTOR_PORT: value }),
+      () =>
+        loadEnvironmentConfig({
+          ...requiredEnvironment,
+          CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: value,
+        }),
       Error,
-      "CONNECTOR_PORT must be a positive integer",
+      "must be a positive integer",
     );
   }
 });
 
-Deno.test("loadConfig reads the resilience tuning settings", () => {
-  const config = loadConfig({
+Deno.test("loadEnvironmentConfig reads explicit resilience tuning", () => {
+  const config = loadEnvironmentConfig({
+    ...requiredEnvironment,
     CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS: "20",
+    CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "2",
+    CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "9",
     CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS: "8",
-    CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "5",
+    CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0",
     CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS: "7",
     CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: "0.25",
-    CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "30",
     CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS: "200",
   });
 
   assertEquals(config.connectTimeoutMs, 20_000);
+  assertEquals(config.reconnectInitialDelayMs, 2_000);
+  assertEquals(config.reconnectMaxDelayMs, 9_000);
   assertEquals(config.reconnectStableThresholdMs, 8_000);
-  assertEquals(config.heartbeatTimeoutFactor, 5);
+  assertEquals(config.heartbeatTimeoutFactor, 0);
   assertEquals(config.tokenFetchTimeoutMs, 7_000);
   assertEquals(config.reconnectJitterRatio, 0.25);
   assertEquals(config.livenessStaleMs, 200_000);
 });
 
-Deno.test("loadConfig allows disabling the heartbeat watchdog with factor 0", () => {
-  const config = loadConfig({ CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0" });
-  assertEquals(config.heartbeatTimeoutFactor, 0);
-});
-
-Deno.test("loadConfig rejects a jitter ratio outside 0..1", () => {
+Deno.test("loadEnvironmentConfig rejects invalid resilience ratios and factors", () => {
   for (const value of ["-0.1", "1.5", "abc"]) {
     assertThrows(
-      () => loadConfig({ CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: value }),
+      () =>
+        loadEnvironmentConfig({
+          ...requiredEnvironment,
+          CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: value,
+        }),
       Error,
-      "CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO must be a number between 0 and 1",
+      "must be a number between 0 and 1",
     );
+  }
+  assertThrows(
+    () =>
+      loadEnvironmentConfig({
+        ...requiredEnvironment,
+        CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "-1",
+      }),
+    Error,
+    "must be a non-negative integer",
+  );
+});
+
+Deno.test("parseVolumeConfig normalizes all operational YAML settings", () => {
+  const config = parseVolumeConfig(`
+connection:
+  websocketUrl: " wss://cloud.example/connector/ws "
+  heartbeatIntervalSeconds: 15
+logging:
+  level: debug
+forwarding:
+  target: https://internal.example
+  outboundUrlAllowlist:
+    - "^https://internal[.]example(?:/|$)"
+  methods: [GET, POST]
+  timeout: 5000
+`);
+
+  assertEquals(config, {
+    connection: {
+      websocketUrl: "wss://cloud.example/connector/ws",
+      heartbeatIntervalMs: 15_000,
+    },
+    logging: { level: "debug" },
+    forwarding: {
+      target: "https://internal.example",
+      outboundUrlAllowlist: ["^https://internal[.]example(?:/|$)"],
+      methods: ["GET", "POST"],
+      timeout: 5000,
+      request: undefined,
+      response: undefined,
+    },
+  });
+});
+
+Deno.test("parseVolumeConfig applies hot-reloadable defaults", () => {
+  const config = parseVolumeConfig(minimalYaml);
+  assertEquals(config.connection.heartbeatIntervalMs, 30_000);
+  assertEquals(config.logging.level, "info");
+  assertEquals(config.forwarding.outboundUrlAllowlist, []);
+});
+
+Deno.test("parseVolumeConfig rejects malformed, unknown, and removed config", () => {
+  for (
+    const yaml of [
+      "not: [valid",
+      "connection: {}\nforwarding:\n  target: https://internal.example",
+      `${minimalYaml}\nunknown: true`,
+      `${minimalYaml}\nlogging:\n  level: trace`,
+      `${minimalYaml}\nforwarding:\n  target: https://internal.example\n  body: changed`,
+    ]
+  ) {
+    assertThrows(() => parseVolumeConfig(yaml), RuntimeError);
   }
 });
 
-Deno.test("loadConfig rejects a negative heartbeat timeout factor", () => {
-  assertThrows(
-    () => loadConfig({ CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "-1" }),
-    Error,
-    "CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR must be a non-negative integer",
-  );
-});
-
-Deno.test("loadConfig rejects invalid log levels", () => {
-  assertThrows(
-    () => loadConfig({ CLOUD_CONNECTOR_LOG_LEVEL: "trace" }),
-    Error,
-    "CLOUD_CONNECTOR_LOG_LEVEL must be one of: error, warn, info, debug",
-  );
-});
-
-Deno.test("loadConfig requires the liveness window to exceed the max backoff", () => {
+Deno.test("parseVolumeConfig validates the YAML outbound allowlist", () => {
+  for (const value of ["{}", '[""]', "[42]"]) {
+    assertThrows(
+      () =>
+        parseVolumeConfig(`
+connection:
+  websocketUrl: wss://cloud.example/ws
+forwarding:
+  target: https://internal.example
+  outboundUrlAllowlist: ${value}
+`),
+      RuntimeError,
+      "must be an array of non-empty strings",
+    );
+  }
   assertThrows(
     () =>
-      loadConfig({
-        CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "120",
-        CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS: "60",
-      }),
-    Error,
-    "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS must be greater than",
+      parseVolumeConfig(`
+connection:
+  websocketUrl: wss://cloud.example/ws
+forwarding:
+  target: https://internal.example
+  outboundUrlAllowlist: ["("]
+`),
+    RuntimeError,
+    "is not a valid regular expression",
   );
 });
 
-Deno.test("loadConfig requires the liveness window to exceed the heartbeat interval", () => {
+Deno.test("combineConfig requires liveness to cover backoff and YAML heartbeat", () => {
+  const shortLiveness = loadEnvironmentConfig({
+    ...requiredEnvironment,
+    CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "5",
+    CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS: "10",
+  });
+  const longHeartbeat = parseVolumeConfig(`
+connection:
+  websocketUrl: wss://cloud.example/ws
+  heartbeatIntervalSeconds: 20
+forwarding:
+  target: https://internal.example
+`);
+
   assertThrows(
-    () =>
-      loadConfig({
-        CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "5",
-        CLOUD_CONNECTOR_HEARTBEAT_INTERVAL_SECONDS: "200",
-        CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS: "120",
-      }),
+    () => combineConfig(shortLiveness, longHeartbeat),
     Error,
-    "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS must be greater than",
+    "must be greater than both",
   );
 });
