@@ -174,12 +174,10 @@ The runtime returns stable error codes to the cloud, including:
 
 ## Development
 
-Use Deno 2.8.1 or newer:
+Use Deno 2.8.1, matching `.dvmrc` and the production image:
 
 ```bash
-deno task check
-deno task lint
-deno task test
+deno task ci
 ```
 
 The runtime OpenAPI models are generated with `deno task generate:api`. The
@@ -200,4 +198,5 @@ customization examples.
 ```
 
 See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for deployment details and
-[`docs/RELEASE.md`](docs/RELEASE.md) for the release checklist.
+[`docs/CI.md`](docs/CI.md) for repository validation. The release process is
+documented in [`docs/RELEASE.md`](docs/RELEASE.md).

@@ -1,167 +1,167 @@
 openapi: 3.0.2
 info:
-    title: Cloud Connector Protocol
-    version: 1.0.0
+  title: Cloud Connector Protocol
+  version: 1.0.0
 servers:
-    - url: /cloud-connector
+  - url: /cloud-connector
 paths:
-    /messages:
-        x-ignore: true
-        get:
-            summary: Dummy endpoint to reference all protocol schemas.
-            responses:
-                200:
-                    description: Protocol schemas
-                    content:
-                        application/json:
-                            schema:
-                                $ref: "#/components/schemas/CloudConnectorMessageFrame"
+  /messages:
+    x-ignore: true
+    get:
+      summary: Dummy endpoint to reference all protocol schemas.
+      responses:
+        200:
+          description: Protocol schemas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudConnectorMessageFrame"
 components:
-    schemas:
-        CloudConnectorHttpMethod:
-            type: string
-            enum:
-                - GET
-                - POST
-                - PUT
-                - PATCH
-                - DELETE
-                - HEAD
-                - OPTIONS
-        CloudConnectorHttpRequest:
-            type: object
-            properties:
-                method:
-                    $ref: "#/components/schemas/CloudConnectorHttpMethod"
-                url:
-                    type: string
-                headers:
-                    type: object
-                    additionalProperties:
-                        type: array
-                        items:
-                            type: string
-                    default: {}
-                body:
-                    type: string
-                    nullable: true
-                timeoutSeconds:
-                    type: integer
-                    format: int32
-                    minimum: 1
-                    maximum: 120
-                    default: 60
-            required:
-                - method
-                - url
-        CloudConnectorHttpResponse:
-            type: object
-            properties:
-                statusCode:
-                    type: integer
-                    format: int32
-                    minimum: 100
-                    maximum: 599
-                headers:
-                    type: object
-                    additionalProperties:
-                        type: array
-                        items:
-                            type: string
-                    default: {}
-                body:
-                    type: string
-                    nullable: true
-            required:
-                - statusCode
-        CloudConnectorError:
-            type: object
-            properties:
-                code:
-                    type: string
-                message:
-                    type: string
-            required:
-                - code
-                - message
-        CloudConnectorRequestFrameType:
-            type: string
-            enum:
-                - request
-        CloudConnectorResponseFrameType:
-            type: string
-            enum:
-                - response
-        CloudConnectorHeartbeatFrameType:
-            type: string
-            enum:
-                - heartbeat
-        CloudConnectorFrame:
-            type: object
-            properties:
-                type:
-                    type: string
-            required:
-                - type
-            discriminator:
-                propertyName: type
-                mapping:
-                    request: "#/components/schemas/CloudConnectorRequestFrame"
-                    response: "#/components/schemas/CloudConnectorResponseFrame"
-                    heartbeat: "#/components/schemas/CloudConnectorHeartbeatFrame"
-        CloudConnectorMessageFrame:
-            oneOf:
-                - $ref: "#/components/schemas/CloudConnectorRequestFrame"
-                - $ref: "#/components/schemas/CloudConnectorResponseFrame"
-                - $ref: "#/components/schemas/CloudConnectorHeartbeatFrame"
-            discriminator:
-                propertyName: type
-                mapping:
-                    request: "#/components/schemas/CloudConnectorRequestFrame"
-                    response: "#/components/schemas/CloudConnectorResponseFrame"
-                    heartbeat: "#/components/schemas/CloudConnectorHeartbeatFrame"
-        CloudConnectorRequestFrame:
-            allOf:
-                - $ref: "#/components/schemas/CloudConnectorFrame"
-                - type: object
-                  properties:
-                      type:
-                          $ref: "#/components/schemas/CloudConnectorRequestFrameType"
-                      requestId:
-                          type: string
-                          format: uuid
-                      request:
-                          $ref: "#/components/schemas/CloudConnectorHttpRequest"
-                  required:
-                      - type
-                      - requestId
-                      - request
-        CloudConnectorResponseFrame:
-            allOf:
-                - $ref: "#/components/schemas/CloudConnectorFrame"
-                - type: object
-                  properties:
-                      type:
-                          $ref: "#/components/schemas/CloudConnectorResponseFrameType"
-                      requestId:
-                          type: string
-                          format: uuid
-                      response:
-                          $ref: "#/components/schemas/CloudConnectorHttpResponse"
-                      error:
-                          $ref: "#/components/schemas/CloudConnectorError"
-                  required:
-                      - type
-                      - requestId
-        CloudConnectorHeartbeatFrame:
-            allOf:
-                - $ref: "#/components/schemas/CloudConnectorFrame"
-                - type: object
-                  properties:
-                      type:
-                          $ref: "#/components/schemas/CloudConnectorHeartbeatFrameType"
-                      sentAt:
-                          type: string
-                          format: date-time
-                  required:
-                      - type
+  schemas:
+    CloudConnectorHttpMethod:
+      type: string
+      enum:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - HEAD
+        - OPTIONS
+    CloudConnectorHttpRequest:
+      type: object
+      properties:
+        method:
+          $ref: "#/components/schemas/CloudConnectorHttpMethod"
+        url:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          default: {}
+        body:
+          type: string
+          nullable: true
+        timeoutSeconds:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 120
+          default: 60
+      required:
+        - method
+        - url
+    CloudConnectorHttpResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+        headers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          default: {}
+        body:
+          type: string
+          nullable: true
+      required:
+        - statusCode
+    CloudConnectorError:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      required:
+        - code
+        - message
+    CloudConnectorRequestFrameType:
+      type: string
+      enum:
+        - request
+    CloudConnectorResponseFrameType:
+      type: string
+      enum:
+        - response
+    CloudConnectorHeartbeatFrameType:
+      type: string
+      enum:
+        - heartbeat
+    CloudConnectorFrame:
+      type: object
+      properties:
+        type:
+          type: string
+      required:
+        - type
+      discriminator:
+        propertyName: type
+        mapping:
+          request: "#/components/schemas/CloudConnectorRequestFrame"
+          response: "#/components/schemas/CloudConnectorResponseFrame"
+          heartbeat: "#/components/schemas/CloudConnectorHeartbeatFrame"
+    CloudConnectorMessageFrame:
+      oneOf:
+        - $ref: "#/components/schemas/CloudConnectorRequestFrame"
+        - $ref: "#/components/schemas/CloudConnectorResponseFrame"
+        - $ref: "#/components/schemas/CloudConnectorHeartbeatFrame"
+      discriminator:
+        propertyName: type
+        mapping:
+          request: "#/components/schemas/CloudConnectorRequestFrame"
+          response: "#/components/schemas/CloudConnectorResponseFrame"
+          heartbeat: "#/components/schemas/CloudConnectorHeartbeatFrame"
+    CloudConnectorRequestFrame:
+      allOf:
+        - $ref: "#/components/schemas/CloudConnectorFrame"
+        - type: object
+          properties:
+            type:
+              $ref: "#/components/schemas/CloudConnectorRequestFrameType"
+            requestId:
+              type: string
+              format: uuid
+            request:
+              $ref: "#/components/schemas/CloudConnectorHttpRequest"
+          required:
+            - type
+            - requestId
+            - request
+    CloudConnectorResponseFrame:
+      allOf:
+        - $ref: "#/components/schemas/CloudConnectorFrame"
+        - type: object
+          properties:
+            type:
+              $ref: "#/components/schemas/CloudConnectorResponseFrameType"
+            requestId:
+              type: string
+              format: uuid
+            response:
+              $ref: "#/components/schemas/CloudConnectorHttpResponse"
+            error:
+              $ref: "#/components/schemas/CloudConnectorError"
+          required:
+            - type
+            - requestId
+    CloudConnectorHeartbeatFrame:
+      allOf:
+        - $ref: "#/components/schemas/CloudConnectorFrame"
+        - type: object
+          properties:
+            type:
+              $ref: "#/components/schemas/CloudConnectorHeartbeatFrameType"
+            sentAt:
+              type: string
+              format: date-time
+          required:
+            - type

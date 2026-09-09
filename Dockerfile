@@ -3,11 +3,12 @@ FROM denoland/deno:2.8.1
 # Create app directory
 WORKDIR /app
 
-# Copy source files
+# Keep production dependency resolution identical to local development and CI.
+COPY deno.json deno.lock ./
 COPY runtime/ ./runtime/
 
-# Cache dependencies with the runtime configuration and lock file.
-RUN deno cache --config runtime/deno.json runtime/main.ts
+# Cache dependencies without allowing the lock file to change.
+RUN deno cache --frozen --config deno.json runtime/main.ts
 
 # Non-root user (Deno image uses uid 1000)
 USER deno

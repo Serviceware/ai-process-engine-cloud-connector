@@ -1,0 +1,128 @@
+name: Release container
+
+on:
+  push:
+    tags:
+      - v*.*.*
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release commit
+    uses: $/.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish versioned image
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      IMAGE_NAME: ghcr.io/serviceware/cloud-connector
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify release contract
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+
+          grep --fixed-strings --quiet "## ${version} -" CHANGELOG.md
+          for compose_file in \
+            templates/starter/docker-compose.yml \
+            templates/examples/ticketing-yaml/docker-compose.yml; do
+            grep --fixed-strings --quiet "${IMAGE_NAME}:${version}" "${compose_file}"
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          sbom: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Pull the published digest
+        run: docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+
+      - name: Start published Cloud Connector image
+        run: |
+          docker run --rm --detach \
+            --name cloud-connector-release-smoke \
+            --publish 18080:8080 \
+            --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
+            --env INTERNAL_API_URL=https://internal.example \
+            --env OUTBOUND_URL_ALLOWLIST='[]' \
+            --volume "${PWD}/templates/starter/forwarding.yml:/config/forwarding.yml:ro" \
+            "${IMAGE_NAME}@${IMAGE_DIGEST}"
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+
+      - name: Verify published image health
+        run: |
+          for attempt in {1..60}; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' cloud-connector-release-smoke)"
+            if [[ "${status}" == "healthy" ]]; then
+              curl --fail --silent --show-error http://localhost:18080/health
+              exit 0
+            fi
+            if [[ "${status}" == "unhealthy" ]]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Show logs and remove release smoke-test container
+        if: always()
+        run: |
+          docker logs cloud-connector-release-smoke || true
+          docker rm --force cloud-connector-release-smoke || true

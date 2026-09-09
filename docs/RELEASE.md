@@ -35,9 +35,7 @@ Use Deno `2.8.1`, matching the production image:
 
 ```bash
 git diff --check
-deno task check
-deno task lint
-deno task test
+deno task ci
 
 docker build --pull --tag ghcr.io/serviceware/cloud-connector:3.0.0 .
 docker compose --file templates/starter/docker-compose.yml config --quiet
@@ -76,17 +74,19 @@ Before approval, also confirm:
 
 ## Publish
 
-After merging the verified commit:
+After merging the verified commit, create and push the annotated release tag:
 
 ```bash
 git tag --annotate v3.0.0 --message "Cloud Connector 3.0.0"
 git push origin v3.0.0
-docker push ghcr.io/serviceware/cloud-connector:3.0.0
-docker tag ghcr.io/serviceware/cloud-connector:3.0.0 \
-  ghcr.io/serviceware/cloud-connector:3
-docker push ghcr.io/serviceware/cloud-connector:3
 ```
 
-Move `latest` only when the release is approved as the production default.
-Record the image digest and release URL after pulling and repeating the smoke
-test on a clean host.
+The `Release container` workflow reruns every required check, verifies the
+release contract, publishes version and major container tags, creates an SBOM
+and build-provenance attestation, and smoke-tests the published digest. Protect
+the `release` GitHub environment with the required reviewers.
+
+Move `latest` only after the release is approved as the production default. Run
+the manual `Promote release to latest` workflow with the released semantic
+version. It retags the immutable published image without rebuilding it. Protect
+the `production` GitHub environment with the required reviewers.
