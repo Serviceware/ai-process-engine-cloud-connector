@@ -16,6 +16,61 @@ type OpenOutcome = {
 };
 
 /**
+ * Owns one resilient connection generation and replaces it when a hot-reload
+ * changes socket-level YAML settings. Forwarding-only changes do not disturb
+ * the active connection.
+ */
+export class ReloadableWebSocketClient {
+  private generationAbort?: AbortController;
+
+  constructor(
+    private config: ConnectorConfig,
+    private readonly runtime: ConnectorRuntime,
+    private readonly status: RuntimeStatus,
+    private readonly logger: RuntimeLogger,
+    private readonly controlPlaneFetch: Fetcher = globalThis.fetch,
+  ) {}
+
+  replace(config: ConnectorConfig): void {
+    const connectionChanged =
+      config.websocketUrl !== this.config.websocketUrl ||
+      config.heartbeatIntervalMs !== this.config.heartbeatIntervalMs;
+    this.config = config;
+    if (connectionChanged) this.generationAbort?.abort();
+  }
+
+  async run(signal: AbortSignal): Promise<void> {
+    while (!signal.aborted) {
+      const generationAbort = new AbortController();
+      this.generationAbort = generationAbort;
+      const generationSignal = AbortSignal.any([
+        signal,
+        generationAbort.signal,
+      ]);
+
+      await runCloudWebSocketClient(
+        this.config,
+        this.runtime,
+        generationSignal,
+        this.status,
+        this.logger,
+        this.controlPlaneFetch,
+      );
+
+      if (this.generationAbort === generationAbort) {
+        this.generationAbort = undefined;
+      }
+      if (!signal.aborted && !generationAbort.signal.aborted) {
+        this.logger.error(
+          "Cloud Connector WebSocket client exited unexpectedly; restarting",
+        );
+        await delay(1_000, signal);
+      }
+    }
+  }
+}
+
+/**
  * Maintains the outbound cloud WebSocket connection forever.
  *
  * This function is intentionally un-rejectable: every fault inside the loop is
@@ -32,10 +87,6 @@ export async function runCloudWebSocketClient(
   logger: RuntimeLogger = createLogger(config.logLevel),
   controlPlaneFetch: Fetcher = globalThis.fetch,
 ): Promise<void> {
-  if (!config.websocketUrl) {
-    return;
-  }
-
   let attempt = 0;
   while (!signal.aborted) {
     status.lastTickAt = Date.now();
@@ -127,7 +178,7 @@ async function openWebSocket(
       return;
     }
 
-    const socket = new WebSocket(config.websocketUrl!, {
+    const socket = new WebSocket(config.websocketUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -265,13 +316,6 @@ function getAccessTokenOptions(
   signal: AbortSignal,
   fetcher: Fetcher,
 ): AccessTokenOptions {
-  if (
-    !config.cloudConnectorHost || !config.cloudConnectorClientId ||
-    !config.cloudConnectorClientSecret
-  ) {
-    throw new Error("Cloud Connector authentication is not configured.");
-  }
-
   return {
     host: config.cloudConnectorHost,
     clientId: config.cloudConnectorClientId,

@@ -1,154 +1,58 @@
-# Cloud Connector installation
+# Installation
 
-## Requirements
+The connector needs Docker, access to Serviceware Cloud, and network access to
+the internal target service.
 
-- Docker Engine with Docker Compose
-- outbound HTTPS access to the Serviceware Cloud
-- network access from the container to exactly one configured HTTP(S) target
-- Serviceware Cloud host, WebSocket URL, client ID, and client secret
+## Set up
 
-The deployment does not require Deno, Node.js, a compiler, or a customer script
-runtime on the host.
-
-## Prepare the deployment
+Copy the starter template:
 
 ```bash
-cp -R templates/starter cloud-connector
-cd cloud-connector
+cp -R templates/starter my-cloud-connector
+cd my-cloud-connector
 cp .env.example .env
 ```
 
-Set the Serviceware Cloud values and the internal target in `.env`. Configure an
-anchored allowlist expression for that target. The connector will not forward
-anything while the allowlist is empty.
+Then:
 
-Example:
+1. Enter the Serviceware host and credentials in .env.
+2. Add any secret needed by the internal target to .env.
+3. Set the cloud connection and the forwarding target in
+   config/cloud-connector.yml.
+4. Keep the outbound URL allowlist limited to the intended target.
 
-```env
-SERVICEWARE_HOST=https://dev.ai-process-engine.labs.swops.cloud
-SERVICEWARE_WS_URL=wss://cloud.serviceware.se/connector/ws?tenant=my-tenant
-SERVICEWARE_CLIENT_ID=my-client
-SERVICEWARE_CLIENT_SECRET=change-me
-INTERNAL_API_URL=https://internal-api.example.com
-INTERNAL_API_TOKEN=change-me
-OUTBOUND_URL_ALLOWLIST=["^https://internal-api[.]example[.]com(?:/|$)"]
-```
-
-Keep `.env` outside version control and restrict it to the deployment account.
-
-## Configure forwarding
-
-`forwarding.yml` is the only customer-controlled behavior file. It selects one
-target for every workload request and may configure forwarding headers and one
-static path prefix.
-
-```yaml
-target: "{{ env.INTERNAL_API_URL }}"
-methods: [GET, POST]
-timeout: 30000
-request:
-  headers:
-    set:
-      authorization: "Bearer {{ env.INTERNAL_API_TOKEN }}"
-  pathPrefix: /api
-response:
-  headers:
-    remove: [server, x-powered-by]
-```
-
-The connector never scans a source directory and never loads TypeScript,
-JavaScript, Python, or another executable extension. An inbound absolute URL
-cannot override the target origin from YAML.
-
-Conditions, body changes, response status changes, arbitrary URL rewrites,
-multiple targets, and request-derived target selection are not supported.
-
-The compose file mounts the configuration read-only:
-
-```yaml
-environment:
-  - CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml
-  - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
-volumes:
-  - ./forwarding.yml:/config/forwarding.yml:ro
-```
-
-## Start and verify
+Start the connector:
 
 ```bash
-docker compose pull
 docker compose up -d
-docker compose ps
+docker compose logs -f
+```
+
+Check its status:
+
+```bash
 curl --fail http://localhost:8080/health
 curl --fail http://localhost:8080/ready
-docker compose logs --tail=100 cloud-connector
 ```
 
-`/health` verifies process supervision. `/ready` remains 503 until the cloud
-WebSocket is connected. Configuration is validated before either endpoint is
-bound, so a missing or malformed YAML file produces a clear startup error and a
-container restart loop.
+/health confirms that the process is running. /ready confirms that the cloud
+connection is open.
 
-## Update configuration
+## Change the configuration
 
-The YAML file is immutable for a running process. Validate the change, replace
-the file, and restart:
+Edit config/cloud-connector.yml in the mounted config directory. Valid changes
+take effect without rebuilding the image or restarting the application.
 
-```bash
-docker compose restart cloud-connector
-docker compose logs --tail=100 cloud-connector
-```
+Keep credentials and secrets in .env or the secret store provided by the
+deployment platform. Resilience settings also remain environment variables and
+normally do not need adjustment.
 
-No live code reload or route recomposition exists.
+## If it does not connect
 
-## Network policy
+- Check the container logs.
+- Confirm the Serviceware host and credentials.
+- Confirm that the WebSocket URL is correct.
+- Confirm that the target is included in the outbound URL allowlist.
+- Validate the YAML file for indentation or typing errors.
 
-Allow the container to reach:
-
-- the Serviceware Cloud OAuth endpoint over HTTPS;
-- the configured Serviceware Cloud WebSocket endpoint over WSS; and
-- the YAML target and any permitted redirect destinations.
-
-Apply an infrastructure egress policy in addition to `OUTBOUND_URL_ALLOWLIST`.
-The application allowlist matches normalized absolute URLs and rechecks every
-redirect. Prefer expressions such as:
-
-```env
-OUTBOUND_URL_ALLOWLIST=["^https://api[.]example[.]com(?::8443)?(?:/|$)"]
-```
-
-Avoid unanchored hostname fragments. `[".*"]` is an explicit unrestricted
-configuration, not a safe production default.
-
-## Systemd wrapper (optional)
-
-```ini
-[Unit]
-Description=Cloud Connector
-Requires=docker.service
-After=docker.service network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/cloud-connector
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
-
-[Install]
-WantedBy=multi-user.target
-```
-
-## Troubleshooting
-
-| Symptom                        | Check                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| Container restarts immediately | YAML mount, `CLOUD_CONNECTOR_FORWARDING_CONFIG`, YAML syntax, required `target` |
-| `OUTBOUND_URL_NOT_ALLOWED`     | JSON syntax, regex anchoring, target port/path, redirect destination            |
-| `/ready` returns 503           | cloud URL, credentials, DNS, firewall, TLS, WebSocket path                      |
-| Upstream receives wrong path   | `request.pathPrefix` in `forwarding.yml`                                        |
-| `METHOD_NOT_ALLOWED`           | `methods` list in `forwarding.yml`                                              |
-| Upstream timeout               | YAML `timeout`, target availability, network policy                             |
-
-Do not mount source-code directories into the container. They are not supported
-and are not read by the runtime.
+An invalid YAML update is ignored, so the last working setup continues to run.

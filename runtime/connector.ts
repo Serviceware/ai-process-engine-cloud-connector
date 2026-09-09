@@ -20,15 +20,31 @@ import { toCloudConnectorError } from "./runtime-error.ts";
 export type FrameSender = (frame: WritableFrame) => void | Promise<void>;
 
 /**
- * Handles inbound protocol frames and returns the response to send back.
- * The current wire contract is HTTP-only, but the runtime boundary is named
- * around protocol execution so additional protocol families can plug in later
- * without coupling the wire layer to a particular forwarding implementation.
+ * Forwards the HTTP request carried by one inbound cloud frame.
  */
 export interface ProtocolExecutor {
   execute(
     frame: CloudConnectorRequestFrame,
   ): Promise<CloudConnectorHttpResponse>;
+}
+
+/**
+ * Keeps in-flight requests on the snapshot they started with while switching
+ * all subsequent requests to a newly validated YAML configuration.
+ */
+export class ReloadableProtocolExecutor implements ProtocolExecutor {
+  constructor(private current: ProtocolExecutor) {}
+
+  replace(next: ProtocolExecutor): void {
+    this.current = next;
+  }
+
+  execute(
+    frame: CloudConnectorRequestFrame,
+  ): Promise<CloudConnectorHttpResponse> {
+    const snapshot = this.current;
+    return snapshot.execute(frame);
+  }
 }
 
 export type ConnectorRuntimeOptions = {

@@ -1,5 +1,9 @@
 import { assertEquals } from "@std/assert";
-import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
+import {
+  ConnectorRuntime,
+  type ProtocolExecutor,
+  ReloadableProtocolExecutor,
+} from "./connector.ts";
 import type { CloudConnectorMessageFrame } from "./generated/models.ts";
 import { createLogger } from "./logger.ts";
 import type { WritableFrame } from "./protocol.ts";
@@ -86,6 +90,23 @@ Deno.test("ConnectorRuntime attaches to WebSocket messages and serializes respon
     requestId: "request-1",
     response: { statusCode: 204 },
   }]);
+});
+
+Deno.test("ReloadableProtocolExecutor switches subsequent requests atomically", async () => {
+  const executor = new ReloadableProtocolExecutor({
+    execute: () => Promise.resolve({ statusCode: 200, body: "first" }),
+  });
+  const frame = {
+    type: "request",
+    requestId: "request-1",
+    request: { method: "GET", url: "/users" },
+  } as const;
+
+  assertEquals((await executor.execute(frame)).body, "first");
+  executor.replace({
+    execute: () => Promise.resolve({ statusCode: 200, body: "second" }),
+  });
+  assertEquals((await executor.execute(frame)).body, "second");
 });
 
 function createRuntime(

@@ -98,10 +98,11 @@ jobs:
           docker run --rm --detach \
             --name cloud-connector-release-smoke \
             --publish 18080:8080 \
-            --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
-            --env INTERNAL_API_URL=https://internal.example \
-            --env OUTBOUND_URL_ALLOWLIST='[]' \
-            --volume "${PWD}/templates/starter/forwarding.yml:/config/forwarding.yml:ro" \
+            --env CLOUD_CONNECTOR_HOST=https://cloud.example \
+            --env CLOUD_CONNECTOR_CLIENT_ID=smoke-client \
+            --env CLOUD_CONNECTOR_CLIENT_SECRET=smoke-secret \
+            --env INTERNAL_API_TOKEN=smoke-target-secret \
+            --volume "${PWD}/templates/starter/config:/config:ro" \
             "${IMAGE_NAME}@${IMAGE_DIGEST}"
         env:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}

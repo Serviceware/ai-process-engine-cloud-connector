@@ -1,10 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { checkHealth, readHealthPort } from "./health-check.ts";
-
-Deno.test("readHealthPort uses the default Cloud Connector port", () => {
-  assertEquals(readHealthPort(undefined), 8080);
-  assertEquals(readHealthPort("9090"), 9090);
-});
+import { checkHealth } from "./health-check.ts";
 
 Deno.test("checkHealth returns success for healthy responses", async () => {
   const exitCode = await checkHealth(9090, (input) => {

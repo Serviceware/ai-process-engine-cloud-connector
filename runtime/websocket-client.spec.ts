@@ -5,16 +5,18 @@ import { createLogger } from "./logger.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
 import {
   computeBackoffDelay,
+  ReloadableWebSocketClient,
   runCloudWebSocketClient,
 } from "./websocket-client.ts";
 
 const baseConfig: ConnectorConfig = {
-  host: "0.0.0.0",
-  port: 8080,
+  websocketUrl: "wss://cloud.example/ws",
+  cloudConnectorHost: "https://cloud.example/",
+  cloudConnectorClientId: "client-id",
+  cloudConnectorClientSecret: "client-secret",
   heartbeatIntervalMs: 1,
   reconnectInitialDelayMs: 1,
   reconnectMaxDelayMs: 1,
-  forwardingConfigFile: "forwarding.yml",
   connectTimeoutMs: 1_000,
   reconnectStableThresholdMs: 50,
   heartbeatTimeoutFactor: 0,
@@ -22,14 +24,10 @@ const baseConfig: ConnectorConfig = {
   reconnectJitterRatio: 0,
   livenessStaleMs: 60_000,
   logLevel: "error",
-  outboundUrlAllowlist: [],
-};
-
-const cloudAuth = {
-  websocketUrl: "wss://cloud.example/ws",
-  cloudConnectorHost: "https://cloud.example/",
-  cloudConnectorClientId: "client-id",
-  cloudConnectorClientSecret: "client-secret",
+  forwarding: {
+    target: "https://internal.example",
+    outboundUrlAllowlist: [],
+  },
 };
 
 const silentLogger = createLogger("error", {
@@ -69,37 +67,12 @@ Deno.test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]
   assertEquals(computeBackoffDelay(1, initial, max, 1, () => 1), 1_000);
 });
 
-Deno.test("runCloudWebSocketClient returns without opening a socket when no URL is configured", async () => {
-  const originalWebSocket = globalThis.WebSocket;
-  Object.defineProperty(globalThis, "WebSocket", {
-    configurable: true,
-    value: class ThrowingWebSocket {
-      constructor() {
-        throw new Error("WebSocket should not be created");
-      }
-    },
-  });
-
-  try {
-    await runCloudWebSocketClient(
-      baseConfig,
-      createRuntime(),
-      new AbortController().signal,
-    );
-  } finally {
-    Object.defineProperty(globalThis, "WebSocket", {
-      configurable: true,
-      value: originalWebSocket,
-    });
-  }
-});
-
 Deno.test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes on abort", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     const abortController = new AbortController();
     const client = runCloudWebSocketClient(
-      { ...baseConfig, ...cloudAuth },
+      baseConfig,
       createRuntime(),
       abortController.signal,
       status,
@@ -118,14 +91,55 @@ Deno.test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes o
   });
 });
 
-Deno.test("runCloudWebSocketClient never rejects when opening keeps failing", async () => {
-  // websocketUrl is set but auth config is missing => openWebSocket throws on
-  // every attempt. The loop must absorb it and keep retrying, never reject.
+Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const abortController = new AbortController();
+    const client = new ReloadableWebSocketClient(
+      baseConfig,
+      createRuntime(),
+      status,
+      silentLogger,
+    );
+    const running = client.run(abortController.signal);
+
+    await waitUntil(() => FakeWebSocket.instances.length === 1);
+    client.replace({
+      ...baseConfig,
+      websocketUrl: "wss://cloud.example/reloaded",
+      heartbeatIntervalMs: 5,
+    });
+    await waitUntil(() => FakeWebSocket.instances.length === 2);
+
+    assertEquals(FakeWebSocket.instances[0].closed, true);
+    assertEquals(
+      FakeWebSocket.instances[1].url,
+      "wss://cloud.example/reloaded",
+    );
+
+    client.replace({
+      ...baseConfig,
+      websocketUrl: "wss://cloud.example/reloaded",
+      heartbeatIntervalMs: 5,
+      forwarding: {
+        ...baseConfig.forwarding,
+        target: "https://replacement.example",
+      },
+    });
+    await delayMs(10);
+    assertEquals(FakeWebSocket.instances.length, 2);
+
+    abortController.abort();
+    await running;
+  });
+});
+
+Deno.test("runCloudWebSocketClient never rejects when authentication keeps failing", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     const abortController = new AbortController();
     const client = runCloudWebSocketClient(
-      { ...baseConfig, websocketUrl: cloudAuth.websocketUrl },
+      { ...baseConfig, cloudConnectorHost: "https://unavailable.example" },
       createRuntime(),
       abortController.signal,
       status,
@@ -145,7 +159,7 @@ Deno.test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-fl
     FakeWebSocket.behavior = "openThenClose";
     const abortController = new AbortController();
     const client = runCloudWebSocketClient(
-      { ...baseConfig, ...cloudAuth, reconnectStableThresholdMs: 10_000 },
+      { ...baseConfig, reconnectStableThresholdMs: 10_000 },
       createRuntime(),
       abortController.signal,
       status,
@@ -169,7 +183,6 @@ Deno.test("runCloudWebSocketClient force-closes a half-open socket via the watch
     const client = runCloudWebSocketClient(
       {
         ...baseConfig,
-        ...cloudAuth,
         heartbeatIntervalMs: 5,
         heartbeatTimeoutFactor: 2,
       },
@@ -194,7 +207,6 @@ Deno.test("runCloudWebSocketClient keeps a socket with inbound traffic open", as
     const client = runCloudWebSocketClient(
       {
         ...baseConfig,
-        ...cloudAuth,
         heartbeatIntervalMs: 5,
         heartbeatTimeoutFactor: 2,
       },
@@ -220,7 +232,7 @@ Deno.test("runCloudWebSocketClient retries when the socket never opens (connect 
     FakeWebSocket.behavior = "neverOpen";
     const abortController = new AbortController();
     const client = runCloudWebSocketClient(
-      { ...baseConfig, ...cloudAuth, connectTimeoutMs: 10 },
+      { ...baseConfig, connectTimeoutMs: 10 },
       createRuntime(),
       abortController.signal,
       status,
@@ -262,7 +274,7 @@ Deno.test("runCloudWebSocketClient does not hang when aborted during the token f
   try {
     // Must resolve promptly (not hang) and must not open a socket.
     await runCloudWebSocketClient(
-      { ...baseConfig, ...cloudAuth },
+      baseConfig,
       createRuntime(),
       abortController.signal,
       createRuntimeStatus(),

@@ -13,22 +13,17 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # WebSocket URL for the Serviceware Cloud
-      - CLOUD_CONNECTOR_WS_URL=${SERVICEWARE_WS_URL}
+      # Serviceware Cloud host and OAuth credentials stay outside the volume.
       - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
       - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
       - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
-      - CLOUD_CONNECTOR_LOG_LEVEL=${SERVICEWARE_LOG_LEVEL:-info}
-      - OUTBOUND_URL_ALLOWLIST=${OUTBOUND_URL_ALLOWLIST:-[]}
-      - CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml
 
-      # Ticketing API configuration referenced by forwarding.yml
-      - TICKET_API_URL=${TICKET_API_URL}
+      # Ticketing API secret referenced by cloud-connector.yml
       - TICKET_API_TOKEN=${TICKET_API_TOKEN}
 
     volumes:
-      # Single declarative forwarding configuration (read-only)
-      - ./forwarding.yml:/config/forwarding.yml:ro
+      # Complete hot-reloadable operating configuration.
+      - ./config:/config:ro
 
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]

@@ -1,50 +1,18 @@
-# Cloud Connector starter template
+# Cloud Connector starter
 
-This template runs the Cloud Connector with one declarative YAML forwarding
-configuration. Customer TypeScript, JavaScript, and other executable extension
-code are not supported or loaded.
+This template connects Serviceware Cloud to one internal HTTP service.
 
-## Configure
+## Use it
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with Serviceware Cloud credentials, the internal target URL, and its
-credentials. `OUTBOUND_URL_ALLOWLIST` is a JSON array of regular expressions and
-remains default-deny. The configured target must match at least one expression;
-use `[".*"]` only when unrestricted workload access is an intentional security
-decision.
-
-Edit `forwarding.yml` to configure the one upstream target, optional method
-restrictions, timeout, forwarding headers, and one static path prefix. Every
-inbound workload path and query string is forwarded to that target. There are no
-conditions, body/status changes, arbitrary rewrites, route files, or script
-hooks.
-
-## Start
+1. Copy .env.example to .env and enter the Serviceware credentials.
+2. Edit config/cloud-connector.yml and set the cloud connection and target.
+3. Start and check the connector:
 
 ```bash
 docker compose up -d
 curl --fail http://localhost:8080/health
 curl --fail http://localhost:8080/ready
-docker compose logs -f
 ```
 
-Configuration changes require a container restart:
-
-```bash
-docker compose restart cloud-connector
-```
-
-## Files
-
-```text
-.
-├── .env.example
-├── docker-compose.yml
-└── forwarding.yml
-```
-
-The compose file mounts only `forwarding.yml` into the container. No customer
-source directory is mounted or executed.
+Changes to cloud-connector.yml take effect while the connector is running.
+Invalid changes are ignored and the previous working setup remains active.

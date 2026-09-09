@@ -1,5 +1,10 @@
-import { parse as parseYaml } from "@std/yaml";
-import type { ConnectorConfig } from "./config.ts";
+import type {
+  ConnectorConfig,
+  ForwardingConfig,
+  HeaderForwardingConfig,
+  RequestForwardingConfig,
+  ResponseForwardingConfig,
+} from "./config.ts";
 import type { ProtocolExecutor } from "./connector.ts";
 import type {
   CloudConnectorHttpRequest,
@@ -11,38 +16,9 @@ import { createLogger } from "./logger.ts";
 import { createAllowlistedFetch, type Fetcher } from "./outbound-url-policy.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
-const supportedMethods = new Set([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-]);
-
-export type YamlRequestForwardingConfig = {
-  headers?: HeaderForwardingConfig;
-  /** Static path prefix applied before forwarding. */
-  pathPrefix?: string;
-};
-
-export type YamlResponseForwardingConfig = {
-  headers?: HeaderForwardingConfig;
-};
-
-export type YamlForwardingConfig = {
-  /** Base URL for every forwarded workload request. */
-  target: string;
-  /** Optional HTTP method restriction. Default: all supported methods. */
-  methods?: string[];
-  /** Optional request forwarding settings. */
-  request?: YamlRequestForwardingConfig;
-  /** Optional response forwarding settings. */
-  response?: YamlResponseForwardingConfig;
-  /** Upstream timeout in milliseconds. Default: 30000. */
-  timeout?: number;
-};
+export type YamlRequestForwardingConfig = RequestForwardingConfig;
+export type YamlResponseForwardingConfig = ResponseForwardingConfig;
+export type YamlForwardingConfig = ForwardingConfig;
 
 export type YamlValueContext = {
   requestId: string;
@@ -50,14 +26,9 @@ export type YamlValueContext = {
   env: Record<string, string>;
 };
 
-type HeaderForwardingConfig = {
-  add?: Record<string, string>;
-  remove?: string[];
-  set?: Record<string, string>;
-};
-
 export type YamlForwardingExecutorOptions = {
   config: ConnectorConfig;
+  configPath: string;
   env?: Record<string, string>;
   logger?: RuntimeLogger;
   nextFetch?: Fetcher;
@@ -78,37 +49,31 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     private readonly fetcher: Fetcher,
   ) {}
 
-  static async create(
+  static create(
     options: YamlForwardingExecutorOptions,
-  ): Promise<YamlForwardingExecutor> {
-    const content = await readRequiredConfig(
-      options.config.forwardingConfigFile,
-    );
-    const forwarding = parseYamlForwardingConfig(
-      content,
-      options.config.forwardingConfigFile,
-    );
+  ): YamlForwardingExecutor {
+    const forwarding = options.config.forwarding;
     const env = options.env ?? Deno.env.toObject();
     const targetBase = resolveTargetTemplate(
       forwarding.target,
       env,
-      options.config.forwardingConfigFile,
+      options.configPath,
     );
     // Resolve and validate the target during startup, not on the first request.
-    parseTargetUrl(targetBase, "/", options.config.forwardingConfigFile);
+    parseTargetUrl(targetBase, "/", options.configPath);
     const logger = options.logger ?? createLogger(options.config.logLevel);
     logger.info(
-      `Loaded YAML forwarding configuration from ${options.config.forwardingConfigFile}`,
+      `Activated YAML forwarding configuration from ${options.configPath}`,
     );
 
     return new YamlForwardingExecutor(
       forwarding,
       targetBase,
-      options.config.forwardingConfigFile,
+      options.configPath,
       env,
       logger,
       createAllowlistedFetch(
-        options.config.outboundUrlAllowlist,
+        forwarding.outboundUrlAllowlist,
         options.nextFetch,
       ),
     );
@@ -221,38 +186,11 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
 export function createYamlForwardingExecutor(
   options: YamlForwardingExecutorOptions,
 ): Promise<YamlForwardingExecutor> {
-  return YamlForwardingExecutor.create(options);
-}
-
-export function parseYamlForwardingConfig(
-  content: string,
-  path: string,
-): YamlForwardingConfig {
-  let value: unknown;
   try {
-    value = parseYaml(content);
+    return Promise.resolve(YamlForwardingExecutor.create(options));
   } catch (error) {
-    throw new RuntimeError(
-      "YAML_PARSE_ERROR",
-      `Failed to parse YAML forwarding config at ${path}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { cause: error },
-    );
+    return Promise.reject(error);
   }
-
-  try {
-    validateForwardingConfig(value);
-  } catch (error) {
-    throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Invalid YAML forwarding config at ${path}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { cause: error },
-    );
-  }
-  return value;
 }
 
 export function applyYamlRequestForwardingConfig(
@@ -344,18 +282,6 @@ function resolveExpression(
   return "";
 }
 
-async function readRequiredConfig(path: string): Promise<string> {
-  try {
-    return await Deno.readTextFile(path);
-  } catch (error) {
-    throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Cannot read required YAML forwarding config at ${path}`,
-      { cause: error },
-    );
-  }
-}
-
 function parseTargetUrl(
   target: string,
   requestPath: string,
@@ -411,159 +337,6 @@ function removeHopByHopHeaders(headers: Headers): void {
     ]
   ) {
     headers.delete(name);
-  }
-}
-
-function validateForwardingConfig(
-  value: unknown,
-): asserts value is YamlForwardingConfig {
-  const config = requireRecord(value, "configuration");
-  rejectUnknown(
-    config,
-    ["target", "methods", "request", "response", "timeout"],
-    "configuration",
-  );
-  requireNonEmptyString(config.target, "target");
-  validateTargetTemplate(config.target);
-  if (config.methods !== undefined) {
-    if (
-      !Array.isArray(config.methods) || config.methods.length === 0 ||
-      config.methods.some((method) =>
-        typeof method !== "string" || !supportedMethods.has(method)
-      )
-    ) {
-      throw new Error(
-        "methods must be a non-empty array of supported uppercase HTTP methods",
-      );
-    }
-  }
-  if (
-    config.timeout !== undefined &&
-    (typeof config.timeout !== "number" ||
-      !Number.isInteger(config.timeout) || config.timeout < 1_000 ||
-      config.timeout > 300_000)
-  ) {
-    throw new Error("timeout must be an integer between 1000 and 300000");
-  }
-  if (config.request !== undefined) validateRequestConfig(config.request);
-  if (config.response !== undefined) validateResponseConfig(config.response);
-}
-
-function validateRequestConfig(value: unknown): void {
-  const config = requireRecord(value, "request");
-  rejectUnknown(config, ["headers", "pathPrefix"], "request");
-  if (config.headers !== undefined) {
-    validateHeaderConfig(config.headers, "request.headers");
-  }
-  if (config.pathPrefix !== undefined) {
-    requireString(config.pathPrefix, "request.pathPrefix");
-    if (
-      !config.pathPrefix.startsWith("/") ||
-      config.pathPrefix.startsWith("//") ||
-      config.pathPrefix.includes("?") ||
-      config.pathPrefix.includes("#") ||
-      config.pathPrefix.includes("{{") ||
-      config.pathPrefix.includes("}}")
-    ) {
-      throw new Error(
-        "request.pathPrefix must be an absolute path without query or fragment",
-      );
-    }
-  }
-}
-
-function validateResponseConfig(value: unknown): void {
-  const config = requireRecord(value, "response");
-  rejectUnknown(config, ["headers"], "response");
-  if (config.headers !== undefined) {
-    validateHeaderConfig(config.headers, "response.headers");
-  }
-}
-
-function validateHeaderConfig(value: unknown, path: string): void {
-  const config = requireRecord(value, path);
-  rejectUnknown(config, ["add", "remove", "set"], path);
-  for (const name of ["add", "set"] as const) {
-    if (config[name] === undefined) continue;
-    const entries = requireRecord(config[name], `${path}.${name}`);
-    for (const [key, entry] of Object.entries(entries)) {
-      requireString(entry, `${path}.${name}.${key}`);
-      validateHeaderTemplate(entry, `${path}.${name}.${key}`);
-    }
-  }
-  if (
-    config.remove !== undefined &&
-    (!Array.isArray(config.remove) ||
-      config.remove.some((entry) => typeof entry !== "string"))
-  ) {
-    throw new Error(`${path}.remove must be an array of strings`);
-  }
-}
-
-function requireRecord(value: unknown, path: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${path} must be an object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function rejectUnknown(
-  value: Record<string, unknown>,
-  allowed: string[],
-  path: string,
-): void {
-  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unknown) throw new Error(`${path}.${unknown} is not supported`);
-}
-
-function requireString(value: unknown, path: string): asserts value is string {
-  if (typeof value !== "string") throw new Error(`${path} must be a string`);
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string,
-): asserts value is string {
-  requireString(value, path);
-  if (!value.trim()) throw new Error(`${path} must not be empty`);
-}
-
-function validateTargetTemplate(target: string): void {
-  validateTemplateExpressions(
-    target,
-    "target",
-    (expression) => /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
-  );
-  if (!target.includes("{{")) {
-    parseTargetUrl(target, "/", "configuration");
-  }
-}
-
-function validateHeaderTemplate(template: string, path: string): void {
-  validateTemplateExpressions(
-    template,
-    path,
-    (expression) =>
-      /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ||
-      expression === "context.requestId" ||
-      expression === "context.startedAt",
-  );
-}
-
-function validateTemplateExpressions(
-  template: string,
-  path: string,
-  allows: (expression: string) => boolean,
-): void {
-  const pattern = /\{\{\s*([^}]+)\s*\}\}/g;
-  for (const match of template.matchAll(pattern)) {
-    if (!allows(match[1].trim())) {
-      throw new Error(`${path} contains an unsupported interpolation value`);
-    }
-  }
-  const remaining = template.replace(pattern, "");
-  if (remaining.includes("{{") || remaining.includes("}}")) {
-    throw new Error(`${path} contains malformed interpolation syntax`);
   }
 }
 

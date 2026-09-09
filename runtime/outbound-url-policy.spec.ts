@@ -43,7 +43,7 @@ Deno.test("allowlisted fetch blocks before sending a request", async () => {
   await assertRejects(
     () => fetcher("https://blocked.example/secret?token=hidden"),
     RuntimeError,
-    "OUTBOUND_URL_ALLOWLIST",
+    "forwarding.outboundUrlAllowlist",
   );
   assertEquals(calls, 0);
 });
@@ -84,7 +84,7 @@ Deno.test("allowlisted fetch rechecks redirect targets", async () => {
   await assertRejects(
     () => fetcher("https://allowed.example/start"),
     RuntimeError,
-    "OUTBOUND_URL_ALLOWLIST",
+    "forwarding.outboundUrlAllowlist",
   );
   assertEquals(calls, ["https://allowed.example/start"]);
 });
