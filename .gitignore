@@ -34,7 +34,6 @@ coverage/
 # Test artifacts
 .test-cache/
 
-# Lock files from other package managers (we use deno.lock)
-package-lock.json
+# Lock files from package managers not used by this repository
 yarn.lock
 pnpm-lock.yaml

@@ -1,13 +1,24 @@
 # Release
 
-Releases are created from semantic version tags.
+Changesets manages Cloud Connector versions, changelog entries, Git tags, and
+GitHub Releases. The container continues to be published from an immutable
+semantic version tag.
 
-## Before tagging
+## Add release intent
 
-1. Update CHANGELOG.md.
-2. Update the image version in the maintained Docker Compose examples.
-3. Note any required configuration change.
-4. Run the checks:
+Every pull request includes a Changeset:
+
+```bash
+npm ci
+npm run changeset
+```
+
+Choose the Semantic Versioning impact and describe the user-visible change. Use
+`npm run changeset -- --empty` when a pull request should not produce a release.
+Do not manually edit the version, generated release heading, or maintained
+Compose image tags.
+
+Run the checks before merging:
 
 ```bash
 deno task ci
@@ -18,12 +29,17 @@ docker compose -f templates/examples/ticketing-yaml/docker-compose.yml config
 
 ## Publish
 
-Create and push the matching version tag:
+After changesets reach `main`, the Changesets workflow creates or updates a
+release pull request. It combines all pending entries, updates `package.json`
+and `CHANGELOG.md`, and synchronizes the image version in both maintained
+Compose examples.
 
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
+Merging the release pull request creates `vX.Y.Z` and a GitHub Release. The same
+workflow invokes the verified container publisher for
+`ghcr.io/serviceware/cloud-connector:X.Y.Z` and the matching major tag. A
+manually pushed semantic version tag still runs the container release workflow
+as a recovery path.
 
-The release workflow builds and publishes the versioned container image. Promote
-the moving latest tag only after the release has been approved.
+The repository setting **Actions > General > Allow GitHub Actions to create and
+approve pull requests** must be enabled. Promote the moving `latest` tag only
+after the release has been approved.

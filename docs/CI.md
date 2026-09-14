@@ -9,4 +9,10 @@ deno task ci
 This checks formatting, linting, types, tests, and generated protocol files.
 
 GitHub Actions runs the same checks for pull requests and also verifies the
-container image. Keep pull requests green before merging.
+container image. It also requires every non-release pull request to contain a
+valid Changeset; use an empty Changeset for work that should not create a new
+release. Keep pull requests green before merging.
+
+After changes reach `main`, the Changesets workflow creates or updates one
+release pull request. Merging that pull request creates the semantic version tag
+and GitHub Release, then publishes the matching container image.

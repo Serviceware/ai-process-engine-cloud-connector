@@ -1,8 +1,9 @@
 {
+  "nodeModulesDir": "none",
   "workspace": ["./runtime"],
   "tasks": {
     "check": "deno task typecheck",
-    "ci": "deno task fmt:check && deno task lint && deno task typecheck && deno task test && deno task generate:check",
+    "ci": "deno task fmt:check && deno task lint && deno task typecheck && deno task test && deno task generate:check && npm run release:check",
     "coverage": "deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' --lcov --output=coverage/lcov.info coverage/raw && deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' coverage/raw",
     "dev": "deno task --cwd runtime dev",
     "fmt": "deno fmt",

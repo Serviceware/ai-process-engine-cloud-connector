@@ -1,0 +1,21 @@
+{
+  "name": "@serviceware/cloud-connector",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Release metadata and tooling for the Serviceware Cloud Connector container",
+  "scripts": {
+    "changeset": "changeset",
+    "changeset:status": "changeset status",
+    "release:check": "node scripts/sync-release-artifacts.mjs --check",
+    "release:tag": "changeset publish",
+    "release:version": "changeset version && node scripts/sync-release-artifacts.mjs"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.2"
+  },
+  "engines": {
+    "node": "^24 || >=26",
+    "npm": ">=10.9.0"
+  },
+  "packageManager": "npm@11.6.0"
+}

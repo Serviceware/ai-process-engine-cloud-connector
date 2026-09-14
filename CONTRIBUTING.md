@@ -7,13 +7,24 @@ Thank you for improving the Cloud Connector.
 1. Create a branch.
 2. Keep the change focused on the connector's proxy role.
 3. Add or update tests where behaviour changes.
-4. Run the repository checks.
-5. Open a pull request with a short explanation of the change and its impact.
+4. Add a Changeset describing the user-visible impact. For changes that do not
+   need a release, add an empty Changeset.
+5. Run the repository checks.
+6. Open a pull request with a short explanation of the change and its impact.
 
-Use the Deno version from .dvmrc:
+Use the Deno and Node.js versions from `.dvmrc` and `.node-version`:
 
 ```bash
+npm ci
 deno task ci
+```
+
+Create a release Changeset with `npm run changeset`. Select `patch`, `minor`, or
+`major` and write a concise, user-facing summary. For documentation, tests, or
+internal tooling that should not change the released version, use:
+
+```bash
+npm run changeset -- --empty
 ```
 
 Please do not add credentials, generated build output, or unrelated

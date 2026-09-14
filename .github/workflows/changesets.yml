@@ -1,0 +1,82 @@
+name: Changesets release management
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify main
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  changesets:
+    name: Version or tag release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install release tooling
+        run: npm ci --ignore-scripts
+
+      - name: Create release pull request or tag release
+        id: changesets
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          version-script: npm run release:version
+          publish-script: npm run release:tag
+          commit-message: "chore: release Cloud Connector"
+          pr-title: "chore: release Cloud Connector"
+          create-github-releases: true
+          push-git-tags: true
+
+      - name: Read released Cloud Connector version
+        id: release
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
+        run: |
+          version="$(jq --exit-status --raw-output '
+            map(select(.name == "@serviceware/cloud-connector"))
+            | if length == 1 then .[0].version else error("Cloud Connector release missing") end
+          ' <<< "${PUBLISHED_PACKAGES}")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  publish-container:
+    name: Publish released container
+    needs: changesets
+    if: needs.changesets.outputs.published == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.changesets.outputs.version }}
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
