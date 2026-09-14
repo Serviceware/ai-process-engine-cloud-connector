@@ -17,9 +17,8 @@ Then:
 
 1. Enter the Serviceware host and credentials in .env.
 2. Add any secret needed by the internal target to .env.
-3. Set the cloud connection and the forwarding target in
-   config/cloud-connector.yml.
-4. Keep the outbound URL allowlist limited to the intended target.
+3. Set the forwarding target rules in config/cloud-connector.yml. Each target is
+   a regular expression over the complete absolute URL.
 
 Start the connector:
 
@@ -51,8 +50,9 @@ normally do not need adjustment.
 
 - Check the container logs.
 - Confirm the Serviceware host and credentials.
-- Confirm that the WebSocket URL is correct.
-- Confirm that the target is included in the outbound URL allowlist.
+- Confirm that `CLOUD_CONNECTOR_HOST` is correct; the WebSocket URL is derived
+  from it automatically.
+- Confirm that the complete target URL matches a forwarding rule.
 - Validate the YAML file for indentation or typing errors.
 
 An invalid YAML update is ignored, so the last working setup continues to run.

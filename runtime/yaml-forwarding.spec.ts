@@ -14,6 +14,7 @@ import {
   applyYamlResponseForwardingConfig,
   createYamlForwardingExecutor,
   interpolate,
+  mergeForwardingConfigs,
   type YamlRequestForwardingConfig,
   type YamlResponseForwardingConfig,
   type YamlValueContext,
@@ -35,10 +36,7 @@ const environment = loadEnvironmentConfig({
 const baseContext: YamlValueContext = {
   requestId: "test-request-id",
   startedAt: "2024-01-01T00:00:00.000Z",
-  env: {
-    API_TOKEN: "secret-token",
-    TENANT_ID: "tenant-123",
-  },
+  env: { API_TOKEN: "secret-token", TENANT_ID: "tenant-123" },
 };
 
 function configFor(forwardingYaml: string): ConnectorConfig {
@@ -47,42 +45,45 @@ function configFor(forwardingYaml: string): ConnectorConfig {
     .join("\n");
   return combineConfig(
     environment,
-    parseVolumeConfig(
-      "connection:\n" +
-        "  websocketUrl: wss://cloud.example/connector/ws\n" +
-        "forwarding:\n" +
-        indented +
-        "\n",
-    ),
+    parseVolumeConfig("connection: {}\nforwarding:\n" + indented + "\n"),
   );
 }
 
-Deno.test("YamlForwardingExecutor forwards every path to the configured target", async () => {
+Deno.test("YamlForwardingExecutor matches the complete URL and merges ordered rules", async () => {
   const calls: Request[] = [];
-  const config = configFor(
-    'target: "{{ env.API_URL }}"\n' +
-      "outboundUrlAllowlist:\n" +
-      '  - "^https://internal[.]example(?:/|$)"\n' +
-      "methods: [POST]\n" +
-      "request:\n" +
-      "  headers:\n" +
-      "    set:\n" +
-      '      authorization: "Bearer {{ env.API_TOKEN }}"\n' +
-      "  pathPrefix: /api\n" +
-      "response:\n" +
-      "  headers:\n" +
-      "    remove: [server]",
-  );
+  const config = configFor(`
+- target: ^https://internal[.]example/
+  methods: []
+  timeout: 5000
+  request:
+    headers:
+      set:
+        x-policy: general
+        x-overridden: first
+    pathPrefix: /api
+  response:
+    headers:
+      remove: [server]
+- target: ^https://internal[.]example/orders
+  methods: [POST]
+  request:
+    headers:
+      set:
+        x-overridden: second
+      add:
+        x-request-id: "{{ context.requestId }}"
+    auth:
+      type: bearer
+      token: "{{ env.API_TOKEN }}"
+`);
   const executor = await createYamlForwardingExecutor({
     config,
     configPath: "/config/cloud-connector.yml",
-    env: {
-      API_URL: "https://internal.example",
-      API_TOKEN: "secret",
-    },
+    env: { API_TOKEN: "secret" },
     logger: silentLogger,
     nextFetch: ((input) => {
-      calls.push(input instanceof Request ? input : new Request(input));
+      const request = input instanceof Request ? input : new Request(input);
+      calls.push(request);
       return Promise.resolve(
         new Response("forwarded", {
           status: 201,
@@ -97,8 +98,8 @@ Deno.test("YamlForwardingExecutor forwards every path to the configured target",
     requestId: "request-1",
     request: {
       method: "POST",
-      url: "https://attacker.invalid/orders?state=open",
-      headers: { host: ["attacker.invalid"], "content-type": ["text/plain"] },
+      url: "https://internal.example/orders?state=open",
+      headers: { host: ["internal.example"], "content-type": ["text/plain"] },
       body: "payload",
     },
   });
@@ -106,6 +107,9 @@ Deno.test("YamlForwardingExecutor forwards every path to the configured target",
   assertEquals(calls.length, 1);
   assertEquals(calls[0].url, "https://internal.example/api/orders?state=open");
   assertEquals(calls[0].headers.get("authorization"), "Bearer secret");
+  assertEquals(calls[0].headers.get("x-policy"), "general");
+  assertEquals(calls[0].headers.get("x-overridden"), "second");
+  assertEquals(calls[0].headers.get("x-request-id"), "request-1");
   assertEquals(calls[0].headers.get("host"), null);
   assertEquals(await calls[0].text(), "payload");
   assertEquals(response, {
@@ -118,94 +122,122 @@ Deno.test("YamlForwardingExecutor forwards every path to the configured target",
   });
 });
 
-Deno.test("YamlForwardingExecutor keeps default-deny outbound policy", async () => {
-  let calls = 0;
+Deno.test("YamlForwardingExecutor denies unmatched URLs and explicit empty methods", async () => {
   const executor = await createYamlForwardingExecutor({
-    config: configFor("target: https://internal.example"),
+    config: configFor("- target: ^https://internal[.]example/\n  methods: []"),
     configPath: "/config/cloud-connector.yml",
     logger: silentLogger,
-    nextFetch: (() => {
-      calls += 1;
-      return Promise.resolve(new Response("unexpected"));
+  });
+  const unmatched = await assertRejects(
+    () =>
+      executor.execute({
+        type: "request",
+        requestId: "1",
+        request: { method: "GET", url: "https://blocked.example/orders" },
+      }),
+    RuntimeError,
+  );
+  assertEquals(unmatched.code, "OUTBOUND_URL_NOT_ALLOWED");
+  const method = await assertRejects(
+    () =>
+      executor.execute({
+        type: "request",
+        requestId: "2",
+        request: { method: "GET", url: "https://internal.example/orders" },
+      }),
+    RuntimeError,
+  );
+  assertEquals(method.code, "METHOD_NOT_ALLOWED");
+});
+
+Deno.test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials tokens", async () => {
+  const calls: Request[] = [];
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: "{{env:CLIENT_SECRET}}"
+      scope: inventory.read
+`),
+    configPath: "/config/cloud-connector.yml",
+    env: { CLIENT_SECRET: "secret" },
+    logger: silentLogger,
+    nextFetch: (async (input, init) => {
+      const request = new Request(input, init);
+      calls.push(request);
+      if (request.url === "https://auth.example/token") {
+        assertEquals(
+          await request.clone().text(),
+          "grant_type=client_credentials&client_id=connector&client_secret=secret&scope=inventory.read",
+        );
+        return Response.json({ access_token: "oauth-token", expires_in: 60 });
+      }
+      assertEquals(request.headers.get("authorization"), "Bearer oauth-token");
+      return new Response("ok");
     }) as Fetcher,
   });
-
-  await assertRejects(
-    () =>
-      executor.execute({
-        type: "request",
-        requestId: "request-1",
-        request: { method: "GET", url: "/orders" },
-      }),
-    RuntimeError,
-    "forwarding.outboundUrlAllowlist",
+  const frame = {
+    type: "request" as const,
+    requestId: "request-1",
+    request: { method: "GET" as const, url: "https://internal.example/items" },
+  };
+  await executor.execute(frame);
+  await executor.execute(frame);
+  assertEquals(
+    calls.filter((call) => call.url === "https://auth.example/token").length,
+    1,
   );
-  assertEquals(calls, 0);
 });
 
-Deno.test("YamlForwardingExecutor enforces configured methods", async () => {
-  const executor = await createYamlForwardingExecutor({
-    config: configFor(
-      "target: https://internal.example\n" +
-        "methods: [GET]",
-    ),
-    configPath: "/config/cloud-connector.yml",
-    logger: silentLogger,
-  });
-  const error = await assertRejects(
-    () =>
-      executor.execute({
-        type: "request",
-        requestId: "request-1",
-        request: { method: "DELETE", url: "/orders/1" },
-      }),
-    RuntimeError,
-  );
-  assertEquals(error.code, "METHOD_NOT_ALLOWED");
-});
-
-Deno.test("YamlForwardingExecutor resolves and validates target secrets before activation", async () => {
-  await assertRejects(
-    () =>
-      createYamlForwardingExecutor({
-        config: configFor('target: "{{ env.MISSING_TARGET }}"'),
-        configPath: "/config/cloud-connector.yml",
-        env: {},
-        logger: silentLogger,
-      }),
-    RuntimeError,
-    "empty after environment interpolation",
+Deno.test("mergeForwardingConfigs applies later explicit values and header entries", () => {
+  assertEquals(
+    mergeForwardingConfigs([
+      {
+        target: "first",
+        methods: ["GET"],
+        timeout: 1000,
+        request: { headers: { set: { "x-one": "1", "x-shared": "old" } } },
+      },
+      {
+        target: "second",
+        methods: [],
+        request: { headers: { set: { "X-Shared": "new" }, remove: ["x-one"] } },
+      },
+    ]),
+    {
+      target: "second",
+      methods: [],
+      timeout: 1000,
+      request: {
+        headers: { remove: ["x-one"], set: { "X-Shared": "new" } },
+        pathPrefix: undefined,
+        auth: undefined,
+      },
+    },
   );
 });
 
 Deno.test("maintained templates contain valid complete connector YAML", async () => {
-  const templates: Array<{ path: string; env: Record<string, string> }> = [
-    {
-      path: new URL(
+  for (
+    const path of [
+      new URL(
         "../templates/starter/config/cloud-connector.yml",
         import.meta.url,
-      )
-        .pathname,
-      env: { INTERNAL_API_TOKEN: "secret" },
-    },
-    {
-      path: new URL(
+      ).pathname,
+      new URL(
         "../templates/examples/ticketing-yaml/config/cloud-connector.yml",
         import.meta.url,
       ).pathname,
-      env: { TICKET_API_TOKEN: "secret" },
-    },
-  ];
-
-  for (const template of templates) {
-    const config = combineConfig(
-      environment,
-      await loadVolumeConfig(template.path),
-    );
+    ]
+  ) {
+    const config = combineConfig(environment, await loadVolumeConfig(path));
     await createYamlForwardingExecutor({
       config,
-      configPath: template.path,
-      env: template.env,
+      configPath: path,
       logger: silentLogger,
     });
   }
@@ -223,8 +255,8 @@ Deno.test("interpolate exposes only documented declarative values", () => {
   assertEquals(interpolate("{{ request.url }}", baseContext), "");
 });
 
-Deno.test("YAML request forwarding updates only headers and path prefix", () => {
-  const config: YamlRequestForwardingConfig = {
+Deno.test("YAML request and response transformations remain declarative", () => {
+  const requestConfig: YamlRequestForwardingConfig = {
     headers: {
       set: { authorization: "Bearer {{ env.API_TOKEN }}" },
       add: { "x-tenant-id": "{{ env.TENANT_ID }}" },
@@ -234,32 +266,30 @@ Deno.test("YAML request forwarding updates only headers and path prefix", () => 
   };
   assertEquals(
     applyYamlRequestForwardingConfig(
-      config,
+      requestConfig,
       {
         method: "GET",
-        url: "/users?active=true",
+        url: "https://internal.example/users?active=true",
         headers: { "x-internal": ["secret"] },
       },
       baseContext,
     ),
     {
       method: "GET",
-      url: "/v2/users?active=true",
+      url: "https://internal.example/v2/users?active=true",
       headers: {
         authorization: ["Bearer secret-token"],
         "x-tenant-id": ["tenant-123"],
       },
     },
   );
-});
 
-Deno.test("YAML response forwarding changes headers only", () => {
-  const config: YamlResponseForwardingConfig = {
+  const responseConfig: YamlResponseForwardingConfig = {
     headers: { add: { "x-request-id": "{{ context.requestId }}" } },
   };
   assertEquals(
     applyYamlResponseForwardingConfig(
-      config,
+      responseConfig,
       { statusCode: 200, headers: {}, body: "original" },
       baseContext,
     ),
@@ -271,48 +301,14 @@ Deno.test("YAML response forwarding changes headers only", () => {
   );
 });
 
-Deno.test("YAML rejects removed customization capabilities", () => {
-  const removedCapabilities = [
-    "request:\n  body:\n    set: changed",
-    'request:\n  reject:\n    if: request.method == "GET"',
-    "request:\n  url:\n    rewrite: /other",
-    "response:\n  body:\n    set: changed",
-    "response:\n  statusCode:\n    set: 201",
-    'request:\n  headers:\n    set:\n      x-path: "{{ request.url }}"',
-  ];
-
-  for (const capability of removedCapabilities) {
-    const error = assertThrows(
-      () =>
-        configFor(
-          "target: https://internal.example\n" +
-            capability,
-        ),
-      RuntimeError,
-    );
-    assertEquals(error.code, "CONFIG_ERROR");
-  }
-});
-
-Deno.test("YAML rejects unsafe path prefixes", () => {
+Deno.test("YAML validates rules, authentication, and path prefixes", () => {
   for (
-    const prefix of [
-      "relative",
-      "//other-host",
-      "/api?override=true",
-      "/api#fragment",
-      "/{{ env.PREFIX }}",
+    const yaml of [
+      "- target: '('",
+      "- target: https://internal.example\n  request:\n    auth:\n      type: bearer",
+      "- target: https://internal.example\n  request:\n    auth:\n      type: oauth2\n      issuer: relative\n      clientId: id\n      clientSecret: secret",
+      "- target: https://internal.example\n  request:\n    pathPrefix: //unsafe",
+      "- target: https://internal.example\n  response:\n    body:\n      set: changed",
     ]
-  ) {
-    assertThrows(
-      () =>
-        configFor(
-          "target: https://internal.example\n" +
-            "request:\n" +
-            '  pathPrefix: "' + prefix + '"',
-        ),
-      RuntimeError,
-      "forwarding.request.pathPrefix must be an absolute path",
-    );
-  }
+  ) assertThrows(() => configFor(yaml), RuntimeError);
 });

@@ -9,8 +9,10 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Replaced the forwarding-only file and operational environment variables with
   one complete, mounted `cloud-connector.yml`.
-- Moved the Serviceware WebSocket URL, heartbeat interval, log level, forwarding
-  target, and outbound URL allowlist into YAML.
+- Moved the heartbeat interval, log level, and forwarding policy into YAML. The
+  Serviceware WebSocket URL is derived from `CLOUD_CONNECTOR_HOST`.
+- Replaced the single target plus outbound allowlist with ordered target-regex
+  rules that merge methods, headers, authentication, and timeouts.
 - Removed the local inbound `/ws` endpoint, optional cloud connection,
   configurable internal listen address, and configurable internal port.
 - Serviceware host and OAuth credentials remain required environment settings;
@@ -25,6 +27,8 @@ follow [Semantic Versioning](https://semver.org/).
   invalid.
 - Reconnects only when socket-level YAML settings change; forwarding and log
   settings switch in place.
+- Supports Basic, Bearer, and OAuth 2.0 client-credentials authentication for
+  forwarded requests, including environment-backed secrets and token caching.
 
 ## 3.0.0 - 2026-08-31
 

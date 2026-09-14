@@ -24,10 +24,9 @@ const baseConfig: ConnectorConfig = {
   reconnectJitterRatio: 0,
   livenessStaleMs: 60_000,
   logLevel: "error",
-  forwarding: {
+  forwarding: [{
     target: "https://internal.example",
-    outboundUrlAllowlist: [],
-  },
+  }],
 };
 
 const silentLogger = createLogger("error", {
@@ -121,10 +120,9 @@ Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change
       ...baseConfig,
       websocketUrl: "wss://cloud.example/reloaded",
       heartbeatIntervalMs: 5,
-      forwarding: {
-        ...baseConfig.forwarding,
+      forwarding: [{
         target: "https://replacement.example",
-      },
+      }],
     });
     await delayMs(10);
     assertEquals(FakeWebSocket.instances.length, 2);

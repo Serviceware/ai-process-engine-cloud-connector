@@ -19,14 +19,11 @@ const silentLogger = createLogger("error", {
 function yaml(target: string, heartbeat = 30): string {
   return `
 connection:
-  websocketUrl: wss://cloud.example/connector/ws
   heartbeatIntervalSeconds: ${heartbeat}
 logging:
   level: debug
 forwarding:
-  target: ${target}
-  outboundUrlAllowlist:
-    - "^https://internal[.]example(?:/|$)"
+  - target: ${target}
 `;
 }
 
@@ -45,15 +42,15 @@ Deno.test("ConfigReloader activates complete valid snapshots only", async () => 
   try {
     await Deno.writeTextFile(file, yaml("https://internal.example"));
     assertEquals(await reloader.reload(), true);
-    assertEquals(active?.forwarding.target, "https://internal.example");
+    assertEquals(active?.forwarding[0].target, "https://internal.example");
 
     await Deno.writeTextFile(file, "connection: [invalid");
     assertEquals(await reloader.reload(), false);
-    assertEquals(active?.forwarding.target, "https://internal.example");
+    assertEquals(active?.forwarding[0].target, "https://internal.example");
 
     await Deno.writeTextFile(file, yaml("https://replacement.example", 200));
     assertEquals(await reloader.reload(), false);
-    assertEquals(active?.forwarding.target, "https://internal.example");
+    assertEquals(active?.forwarding[0].target, "https://internal.example");
   } finally {
     await Deno.remove(file);
   }
@@ -90,10 +87,10 @@ Deno.test("watchConfigFile reloads an atomically replaced volume file", async ()
     await Deno.writeTextFile(replacement, yaml("https://internal.example/v2"));
     await Deno.rename(replacement, file);
     await waitUntil(
-      () => active?.forwarding.target === "https://internal.example/v2",
+      () => active?.forwarding[0].target === "https://internal.example/v2",
     );
     assertEquals(activations >= 1, true);
-    assertEquals(active?.forwarding.target, "https://internal.example/v2");
+    assertEquals(active?.forwarding[0].target, "https://internal.example/v2");
 
     abortController.abort();
     await watcher;

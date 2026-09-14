@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import {
   combineConfig,
+  deriveWebSocketUrl,
   loadEnvironmentConfig,
   parseVolumeConfig,
 } from "./config.ts";
@@ -13,10 +14,9 @@ const requiredEnvironment = {
 };
 
 const minimalYaml = `
-connection:
-  websocketUrl: wss://cloud.example/connector/ws
+connection: {}
 forwarding:
-  target: https://internal.example
+  - target: ^https://internal[.]example(?:/|$)
 `;
 
 Deno.test("loadEnvironmentConfig keeps only credentials and resilience tuning", () => {
@@ -125,32 +125,27 @@ Deno.test("loadEnvironmentConfig rejects invalid resilience ratios and factors",
 Deno.test("parseVolumeConfig normalizes all operational YAML settings", () => {
   const config = parseVolumeConfig(`
 connection:
-  websocketUrl: " wss://cloud.example/connector/ws "
   heartbeatIntervalSeconds: 15
 logging:
   level: debug
 forwarding:
-  target: https://internal.example
-  outboundUrlAllowlist:
-    - "^https://internal[.]example(?:/|$)"
-  methods: [GET, POST]
-  timeout: 5000
+  - target: "^https://internal[.]example(?:/|$)"
+    methods: [GET, POST]
+    timeout: 5000
 `);
 
   assertEquals(config, {
     connection: {
-      websocketUrl: "wss://cloud.example/connector/ws",
       heartbeatIntervalMs: 15_000,
     },
     logging: { level: "debug" },
-    forwarding: {
-      target: "https://internal.example",
-      outboundUrlAllowlist: ["^https://internal[.]example(?:/|$)"],
+    forwarding: [{
+      target: "^https://internal[.]example(?:/|$)",
       methods: ["GET", "POST"],
       timeout: 5000,
       request: undefined,
       response: undefined,
-    },
+    }],
   });
 });
 
@@ -158,46 +153,53 @@ Deno.test("parseVolumeConfig applies hot-reloadable defaults", () => {
   const config = parseVolumeConfig(minimalYaml);
   assertEquals(config.connection.heartbeatIntervalMs, 30_000);
   assertEquals(config.logging.level, "info");
-  assertEquals(config.forwarding.outboundUrlAllowlist, []);
+  assertEquals(config.forwarding.length, 1);
+});
+
+Deno.test("combineConfig derives the WebSocket endpoint from the cloud host", () => {
+  const config = combineConfig(
+    loadEnvironmentConfig(requiredEnvironment),
+    parseVolumeConfig(minimalYaml),
+  );
+  assertEquals(config.websocketUrl, "wss://cloud.example/connector/ws");
+  assertEquals(
+    deriveWebSocketUrl("http://localhost:8000/base/"),
+    "ws://localhost:8000/base/connector/ws",
+  );
 });
 
 Deno.test("parseVolumeConfig rejects malformed, unknown, and removed config", () => {
   for (
     const yaml of [
       "not: [valid",
-      "connection: {}\nforwarding:\n  target: https://internal.example",
+      "connection: {}\nforwarding: {}",
       `${minimalYaml}\nunknown: true`,
       `${minimalYaml}\nlogging:\n  level: trace`,
-      `${minimalYaml}\nforwarding:\n  target: https://internal.example\n  body: changed`,
+      `${minimalYaml}\nforwarding:\n  - target: https://internal.example\n    body: changed`,
     ]
   ) {
     assertThrows(() => parseVolumeConfig(yaml), RuntimeError);
   }
 });
 
-Deno.test("parseVolumeConfig validates the YAML outbound allowlist", () => {
-  for (const value of ["{}", '[""]', "[42]"]) {
+Deno.test("parseVolumeConfig validates forwarding rule arrays and target regexes", () => {
+  for (const value of ["{}", "[]", "[42]"]) {
     assertThrows(
       () =>
         parseVolumeConfig(`
-connection:
-  websocketUrl: wss://cloud.example/ws
-forwarding:
-  target: https://internal.example
-  outboundUrlAllowlist: ${value}
+connection: {}
+forwarding: ${value}
 `),
       RuntimeError,
-      "must be an array of non-empty strings",
+      "forwarding",
     );
   }
   assertThrows(
     () =>
       parseVolumeConfig(`
-connection:
-  websocketUrl: wss://cloud.example/ws
+connection: {}
 forwarding:
-  target: https://internal.example
-  outboundUrlAllowlist: ["("]
+  - target: "("
 `),
     RuntimeError,
     "is not a valid regular expression",
@@ -212,10 +214,9 @@ Deno.test("combineConfig requires liveness to cover backoff and YAML heartbeat",
   });
   const longHeartbeat = parseVolumeConfig(`
 connection:
-  websocketUrl: wss://cloud.example/ws
   heartbeatIntervalSeconds: 20
 forwarding:
-  target: https://internal.example
+  - target: https://internal.example
 `);
 
   assertThrows(

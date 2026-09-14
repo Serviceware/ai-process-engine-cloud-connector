@@ -1,4 +1,5 @@
 import type {
+  AuthConfig,
   ConnectorConfig,
   ForwardingConfig,
   HeaderForwardingConfig,
@@ -34,111 +35,120 @@ export type YamlForwardingExecutorOptions = {
   nextFetch?: Fetcher;
 };
 
+type CompiledRule = {
+  config: ForwardingConfig;
+  matcher: RegExp;
+};
+
+type OAuthToken = {
+  token: string;
+  expiresAt: number;
+};
+
 /**
- * The only workload execution path: one validated YAML configuration forwards
- * every inbound request to its configured target. No customer code is loaded
- * or evaluated and inbound URLs can never select a different target origin.
+ * The complete inbound URL is authorized by one or more ordered YAML rules.
+ * Matching rules are merged in declaration order, with later explicit values
+ * taking precedence.
  */
 export class YamlForwardingExecutor implements ProtocolExecutor {
+  private readonly oauthTokens = new Map<string, OAuthToken>();
+
   private constructor(
-    private readonly forwarding: YamlForwardingConfig,
-    private readonly targetBase: string,
+    private readonly rules: readonly CompiledRule[],
     private readonly configPath: string,
     private readonly env: Record<string, string>,
     private readonly logger: RuntimeLogger,
     private readonly fetcher: Fetcher,
+    private readonly tokenFetcher: Fetcher,
   ) {}
 
   static create(
     options: YamlForwardingExecutorOptions,
   ): YamlForwardingExecutor {
-    const forwarding = options.config.forwarding;
-    const env = options.env ?? Deno.env.toObject();
-    const targetBase = resolveTargetTemplate(
-      forwarding.target,
-      env,
-      options.configPath,
-    );
-    // Resolve and validate the target during startup, not on the first request.
-    parseTargetUrl(targetBase, "/", options.configPath);
+    const rules = options.config.forwarding.map((config) => ({
+      config,
+      matcher: new RegExp(config.target, "u"),
+    }));
     const logger = options.logger ?? createLogger(options.config.logLevel);
     logger.info(
-      `Activated YAML forwarding configuration from ${options.configPath}`,
+      `Activated ${rules.length} YAML forwarding rule(s) from ${options.configPath}`,
     );
+    const nextFetch = options.nextFetch ?? globalThis.fetch.bind(globalThis);
 
     return new YamlForwardingExecutor(
-      forwarding,
-      targetBase,
+      rules,
       options.configPath,
-      env,
+      options.env ?? Deno.env.toObject(),
       logger,
       createAllowlistedFetch(
-        forwarding.outboundUrlAllowlist,
-        options.nextFetch,
+        options.config.forwarding.map((rule) => rule.target),
+        nextFetch,
       ),
+      nextFetch,
     );
   }
 
   async execute(
     frame: CloudConnectorRequestFrame,
   ): Promise<CloudConnectorHttpResponse> {
-    const { request } = frame;
-    if (
-      this.forwarding.methods &&
-      !this.forwarding.methods.includes(request.method)
-    ) {
+    const targetUrl = parseRequestedUrl(frame.request.url, this.configPath);
+    const matchingRules = this.rules
+      .filter((rule) => rule.matcher.test(targetUrl.href))
+      .map((rule) => rule.config);
+    if (matchingRules.length === 0) {
       throw new RuntimeError(
-        "METHOD_NOT_ALLOWED",
-        `Method ${request.method} is not enabled by ${this.configPath}`,
+        "OUTBOUND_URL_NOT_ALLOWED",
+        `Requested URL is not allowed by any forwarding target rule in ${this.configPath}`,
       );
     }
 
-    const inboundUrl = new URL(request.url, "http://cloud-connector.invalid");
-    let forwardedRequest: CloudConnectorHttpRequest = {
-      ...request,
-      url: inboundUrl.pathname + inboundUrl.search,
-      headers: { ...request.headers },
-    };
+    const forwarding = mergeForwardingConfigs(matchingRules);
+    if (
+      forwarding.methods && !forwarding.methods.includes(frame.request.method)
+    ) {
+      throw new RuntimeError(
+        "METHOD_NOT_ALLOWED",
+        `Method ${frame.request.method} is not enabled by ${this.configPath}`,
+      );
+    }
+
     const context: YamlValueContext = {
       requestId: frame.requestId,
       startedAt: new Date().toISOString(),
       env: this.env,
     };
-
-    if (this.forwarding.request) {
+    let forwardedRequest: CloudConnectorHttpRequest = {
+      ...frame.request,
+      url: targetUrl.href,
+      headers: { ...frame.request.headers },
+    };
+    if (forwarding.request) {
       forwardedRequest = applyYamlRequestForwardingConfig(
-        this.forwarding.request,
+        forwarding.request,
         forwardedRequest,
         context,
       );
+      if (forwarding.request.auth) {
+        forwardedRequest = await this.applyAuth(
+          forwarding.request.auth,
+          forwardedRequest,
+          context,
+          forwarding.timeout ?? 30_000,
+        );
+      }
     }
 
-    if (
-      !forwardedRequest.url.startsWith("/") ||
-      forwardedRequest.url.startsWith("//")
-    ) {
-      throw new RuntimeError(
-        "CONFIG_ERROR",
-        `Forwarded request URL must remain an absolute path in ${this.configPath}`,
-      );
-    }
-
-    const targetUrl = parseTargetUrl(
-      this.targetBase,
-      forwardedRequest.url,
-      this.configPath,
-    );
+    const finalUrl = parseRequestedUrl(forwardedRequest.url, this.configPath);
     const headers = buildHeaders(forwardedRequest.headers);
     removeHopByHopHeaders(headers);
-
     this.logger.info(
-      `Forwarding ${forwardedRequest.method} ${forwardedRequest.url} to ${targetUrl.origin}`,
+      `Forwarding ${forwardedRequest.method} to ${finalUrl.origin}`,
     );
 
-    const timeout = this.forwarding.timeout ?? 30_000;
+    const timeout = forwarding.timeout ?? 30_000;
     let upstreamResponse: Response;
     try {
-      upstreamResponse = await this.fetcher(targetUrl, {
+      upstreamResponse = await this.fetcher(finalUrl, {
         method: forwardedRequest.method,
         headers,
         body: forwardedRequest.method === "GET" ||
@@ -148,9 +158,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
         signal: AbortSignal.timeout(timeout),
       });
     } catch (error) {
-      if (error instanceof RuntimeError) {
-        throw error;
-      }
+      if (error instanceof RuntimeError) throw error;
       if (error instanceof Error && error.name === "TimeoutError") {
         throw new RuntimeError(
           "TIMEOUT",
@@ -172,14 +180,104 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       headers: headersToRecord(upstreamResponse.headers),
       body: (await upstreamResponse.text()) || null,
     };
-    if (this.forwarding.response) {
+    if (forwarding.response) {
       response = applyYamlResponseForwardingConfig(
-        this.forwarding.response,
+        forwarding.response,
         response,
         context,
       );
     }
     return response;
+  }
+
+  private async applyAuth(
+    auth: AuthConfig,
+    request: CloudConnectorHttpRequest,
+    context: YamlValueContext,
+    timeout: number,
+  ): Promise<CloudConnectorHttpRequest> {
+    let value: string;
+    if (auth.type === "basic") {
+      const username = requiredInterpolated(auth.username, context, "username");
+      const password = requiredInterpolated(auth.password, context, "password");
+      value = `Basic ${encodeBase64(`${username}:${password}`)}`;
+    } else if (auth.type === "bearer") {
+      value = `Bearer ${requiredInterpolated(auth.token, context, "token")}`;
+    } else {
+      value = `Bearer ${await this.getOAuthToken(auth, context, timeout)}`;
+    }
+    const headers = { ...request.headers };
+    deleteHeader(headers, "authorization");
+    headers.authorization = [value];
+    return { ...request, headers };
+  }
+
+  private async getOAuthToken(
+    auth: Extract<AuthConfig, { type: "oauth2" }>,
+    context: YamlValueContext,
+    timeout: number,
+  ): Promise<string> {
+    const issuer = requiredInterpolated(auth.issuer, context, "issuer");
+    const clientId = requiredInterpolated(auth.clientId, context, "clientId");
+    const clientSecret = requiredInterpolated(
+      auth.clientSecret,
+      context,
+      "clientSecret",
+    );
+    const scope = auth.scope
+      ? requiredInterpolated(auth.scope, context, "scope")
+      : undefined;
+    const cacheKey = JSON.stringify([issuer, clientId, scope]);
+    const cached = this.oauthTokens.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() + 5_000) return cached.token;
+
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
+    if (scope) body.set("scope", scope);
+    let response: Response;
+    try {
+      response = await this.tokenFetcher(issuer, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+        redirect: "error",
+        signal: AbortSignal.timeout(timeout),
+      });
+    } catch (error) {
+      throw new RuntimeError(
+        "TARGET_REQUEST_ERROR",
+        "OAuth2 token request failed",
+        {
+          cause: error,
+        },
+      );
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new RuntimeError(
+        "TARGET_REQUEST_ERROR",
+        `OAuth2 token endpoint returned HTTP ${response.status}`,
+      );
+    }
+    const payload = await response.json() as Record<string, unknown>;
+    if (typeof payload.access_token !== "string" || !payload.access_token) {
+      throw new RuntimeError(
+        "TARGET_REQUEST_ERROR",
+        "OAuth2 token response does not contain access_token",
+      );
+    }
+    const expiresIn = typeof payload.expires_in === "number" &&
+        Number.isFinite(payload.expires_in) && payload.expires_in > 0
+      ? payload.expires_in
+      : 300;
+    this.oauthTokens.set(cacheKey, {
+      token: payload.access_token,
+      expiresAt: Date.now() + expiresIn * 1_000,
+    });
+    return payload.access_token;
   }
 }
 
@@ -191,6 +289,23 @@ export function createYamlForwardingExecutor(
   } catch (error) {
     return Promise.reject(error);
   }
+}
+
+export function mergeForwardingConfigs(
+  configs: readonly ForwardingConfig[],
+): ForwardingConfig {
+  const result: ForwardingConfig = { target: configs.at(-1)?.target ?? "" };
+  for (const config of configs) {
+    if (config.methods !== undefined) result.methods = [...config.methods];
+    if (config.timeout !== undefined) result.timeout = config.timeout;
+    if (config.request !== undefined) {
+      result.request = mergeRequestConfig(result.request, config.request);
+    }
+    if (config.response !== undefined) {
+      result.response = mergeResponseConfig(result.response, config.response);
+    }
+  }
+  return result;
 }
 
 export function applyYamlRequestForwardingConfig(
@@ -232,9 +347,62 @@ export function interpolate(
   template: string,
   context: YamlValueContext,
 ): string {
-  return template.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, expression: string) => {
-    return resolveExpression(expression.trim(), context);
-  });
+  return template.replace(
+    /\{\{\s*([^}]+)\s*\}\}/g,
+    (_, expression: string) => resolveExpression(expression.trim(), context),
+  );
+}
+
+function mergeRequestConfig(
+  current: RequestForwardingConfig | undefined,
+  next: RequestForwardingConfig,
+): RequestForwardingConfig {
+  return {
+    headers: mergeHeaderConfigs(current?.headers, next.headers),
+    pathPrefix: next.pathPrefix !== undefined
+      ? next.pathPrefix
+      : current?.pathPrefix,
+    auth: next.auth !== undefined ? next.auth : current?.auth,
+  };
+}
+
+function mergeResponseConfig(
+  current: ResponseForwardingConfig | undefined,
+  next: ResponseForwardingConfig,
+): ResponseForwardingConfig {
+  return { headers: mergeHeaderConfigs(current?.headers, next.headers) };
+}
+
+function mergeHeaderConfigs(
+  current: HeaderForwardingConfig | undefined,
+  next: HeaderForwardingConfig | undefined,
+): HeaderForwardingConfig | undefined {
+  if (!current && !next) return undefined;
+  const operations = new Map<
+    string,
+    { kind: "add" | "remove" | "set"; name: string; value?: string }
+  >();
+  for (const config of [current, next]) {
+    if (!config) continue;
+    for (const name of config.remove ?? []) {
+      operations.set(name.toLowerCase(), { kind: "remove", name });
+    }
+    for (const [name, value] of Object.entries(config.set ?? {})) {
+      operations.set(name.toLowerCase(), { kind: "set", name, value });
+    }
+    for (const [name, value] of Object.entries(config.add ?? {})) {
+      operations.set(name.toLowerCase(), { kind: "add", name, value });
+    }
+  }
+  const result: HeaderForwardingConfig = {};
+  for (const operation of operations.values()) {
+    if (operation.kind === "remove") {
+      (result.remove ??= []).push(operation.name);
+    } else {
+      (result[operation.kind] ??= {})[operation.name] = operation.value ?? "";
+    }
+  }
+  return result;
 }
 
 function applyHeaderConfig(
@@ -243,28 +411,27 @@ function applyHeaderConfig(
   context: YamlValueContext,
 ): NonNullable<CloudConnectorHttpRequest["headers"]> {
   const result = { ...headers };
-  for (const name of config.remove ?? []) {
-    const normalizedName = name.toLowerCase();
-    for (const key of Object.keys(result)) {
-      if (key.toLowerCase() === normalizedName) delete result[key];
-    }
-  }
+  for (const name of config.remove ?? []) deleteHeader(result, name);
   for (const [name, value] of Object.entries(config.set ?? {})) {
+    deleteHeader(result, name);
     result[name] = [interpolate(value, context)];
   }
   for (const [name, value] of Object.entries(config.add ?? {})) {
+    const existing = findHeader(result, name);
+    if (existing && existing !== name) {
+      result[name] = result[existing];
+      delete result[existing];
+    }
     result[name] = [...(result[name] ?? []), interpolate(value, context)];
   }
   return result;
 }
 
-function applyPathPrefix(
-  url: string,
-  prefix: string,
-): string {
-  const parsed = new URL(url, "http://cloud-connector.invalid");
+function applyPathPrefix(url: string, prefix: string): string {
+  const parsed = new URL(url);
   const normalizedPrefix = prefix === "/" ? "" : prefix.replace(/\/$/, "");
-  return `${normalizedPrefix}${parsed.pathname}${parsed.search}`;
+  parsed.pathname = `${normalizedPrefix}${parsed.pathname}`;
+  return parsed.href;
 }
 
 function resolveExpression(
@@ -275,6 +442,9 @@ function resolveExpression(
   if (parts[0] === "env" && parts.length === 2) {
     return context.env[parts[1]] ?? "";
   }
+  if (expression.startsWith("env:")) {
+    return context.env[expression.slice(4)] ?? "";
+  }
   if (parts[0] === "context") {
     if (parts[1] === "requestId") return context.requestId;
     if (parts[1] === "startedAt") return context.startedAt;
@@ -282,33 +452,62 @@ function resolveExpression(
   return "";
 }
 
-function parseTargetUrl(
-  target: string,
-  requestPath: string,
-  configPath: string,
-): URL {
-  let base: URL;
+function parseRequestedUrl(value: string, configPath: string): URL {
+  let url: URL;
   try {
-    base = new URL(target);
+    url = new URL(value);
   } catch (error) {
     throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Forwarding target in ${configPath} is not a valid absolute URL`,
+      "OUTBOUND_URL_NOT_ALLOWED",
+      `Requested URL must be absolute in ${configPath}`,
       { cause: error },
     );
   }
-  if (base.protocol !== "http:" && base.protocol !== "https:") {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Forwarding target in ${configPath} must use HTTP or HTTPS`,
+      "OUTBOUND_URL_NOT_ALLOWED",
+      `Requested URL must use HTTP or HTTPS in ${configPath}`,
     );
   }
-  return new URL(requestPath, base);
+  return url;
 }
 
-function buildHeaders(
-  values: CloudConnectorHttpRequest["headers"],
-): Headers {
+function requiredInterpolated(
+  template: string,
+  context: YamlValueContext,
+  name: string,
+): string {
+  const value = interpolate(template, context);
+  if (!value) {
+    throw new RuntimeError(
+      "CONFIG_ERROR",
+      `Forwarding authentication ${name} is empty after environment interpolation`,
+    );
+  }
+  return value;
+}
+
+function encodeBase64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function findHeader(
+  headers: Record<string, string[]>,
+  name: string,
+): string | undefined {
+  const normalized = name.toLowerCase();
+  return Object.keys(headers).find((key) => key.toLowerCase() === normalized);
+}
+
+function deleteHeader(headers: Record<string, string[]>, name: string): void {
+  const existing = findHeader(headers, name);
+  if (existing) delete headers[existing];
+}
+
+function buildHeaders(values: CloudConnectorHttpRequest["headers"]): Headers {
   const headers = new Headers();
   for (const [name, entries] of Object.entries(values ?? {})) {
     for (const value of entries) headers.append(name, value);
@@ -335,25 +534,5 @@ function removeHopByHopHeaders(headers: Headers): void {
       "transfer-encoding",
       "upgrade",
     ]
-  ) {
-    headers.delete(name);
-  }
-}
-
-function resolveTargetTemplate(
-  target: string,
-  env: Record<string, string>,
-  configPath: string,
-): string {
-  const resolved = target.replace(
-    /\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g,
-    (_, name: string) => env[name] ?? "",
-  );
-  if (!resolved.trim()) {
-    throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Forwarding target in ${configPath} is empty after environment interpolation`,
-    );
-  }
-  return resolved;
+  ) headers.delete(name);
 }

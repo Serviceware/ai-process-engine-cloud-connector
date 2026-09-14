@@ -8,14 +8,8 @@
   "properties": {
     "connection": {
       "type": "object",
-      "required": ["websocketUrl"],
       "additionalProperties": false,
       "properties": {
-        "websocketUrl": {
-          "type": "string",
-          "format": "uri",
-          "pattern": "^wss?://"
-        },
         "heartbeatIntervalSeconds": {
           "type": "integer",
           "minimum": 1,
@@ -35,7 +29,9 @@
       }
     },
     "forwarding": {
-      "$ref": "#/$defs/forwardingConfig"
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/forwardingConfig" }
     }
   },
   "$defs": {
@@ -47,19 +43,10 @@
         "target": {
           "type": "string",
           "minLength": 1,
-          "description": "One absolute HTTP(S) target; env interpolation is allowed."
-        },
-        "outboundUrlAllowlist": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "description": "Regular expression matched against the complete absolute HTTP(S) request URL."
         },
         "methods": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -72,12 +59,8 @@
           "maximum": 300000,
           "default": 30000
         },
-        "request": {
-          "$ref": "#/$defs/requestConfig"
-        },
-        "response": {
-          "$ref": "#/$defs/responseConfig"
-        }
+        "request": { "$ref": "#/$defs/requestConfig" },
+        "response": { "$ref": "#/$defs/responseConfig" }
       }
     },
     "headerConfig": {
@@ -98,6 +81,45 @@
         }
       }
     },
+    "authConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "username", "password"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "basic" },
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "token"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "bearer" },
+            "token": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "issuer", "clientId", "clientSecret"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "oauth2" },
+            "issuer": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OAuth 2.0 token endpoint."
+            },
+            "clientId": { "type": "string", "minLength": 1 },
+            "clientSecret": { "type": "string", "minLength": 1 },
+            "scope": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
     "requestConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -106,7 +128,8 @@
         "pathPrefix": {
           "type": "string",
           "pattern": "^/(?!/)[^?#]*$"
-        }
+        },
+        "auth": { "$ref": "#/$defs/authConfig" }
       }
     },
     "responseConfig": {

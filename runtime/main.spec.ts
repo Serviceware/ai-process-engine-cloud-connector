@@ -27,10 +27,9 @@ const config = () =>
   combineConfig(
     environment(),
     parseVolumeConfig(`
-connection:
-  websocketUrl: wss://cloud.example/connector/ws
+connection: {}
 forwarding:
-  target: https://internal.example
+  - target: ^https://internal[.]example(?:/|$)
 `),
   );
 
@@ -91,9 +90,9 @@ Deno.test("createProtocolExecutor uses only the validated YAML forwarding snapsh
       executor.execute({
         type: "request",
         requestId: "request-1",
-        request: { method: "GET", url: "/health" },
+        request: { method: "GET", url: "https://blocked.example/health" },
       }),
     RuntimeError,
-    "forwarding.outboundUrlAllowlist",
+    "forwarding target rule",
   );
 });

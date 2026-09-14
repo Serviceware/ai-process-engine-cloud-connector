@@ -10,5 +10,6 @@ docker compose up -d
 curl --fail http://localhost:8080/health
 ```
 
-The YAML file sets the target, path prefix, headers, timeout, heartbeat, and log
-level. Changes take effect while the connector is running.
+The YAML file sets the target rule, authentication, path prefix, headers,
+timeout, heartbeat, and log level. Changes take effect while the connector is
+running.

@@ -162,11 +162,9 @@ function logOutboundPolicy(
   config: ConnectorConfig,
   logger: RuntimeLogger,
 ): void {
-  const patterns = config.forwarding.outboundUrlAllowlist.length;
+  const patterns = config.forwarding.length;
   logger.info(
-    patterns === 0
-      ? "YAML outbound URL allowlist is empty; all workload HTTP requests are blocked"
-      : `YAML outbound URL allowlist active with ${patterns} pattern(s)`,
+    `YAML forwarding policy active with ${patterns} target rule(s)`,
   );
 }
 

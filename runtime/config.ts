@@ -12,17 +12,36 @@ export type RequestForwardingConfig = {
   headers?: HeaderForwardingConfig;
   /** Static path prefix applied before forwarding. */
   pathPrefix?: string;
+  /** Optional target authentication added by the connector. */
+  auth?: AuthConfig;
 };
 
 export type ResponseForwardingConfig = {
   headers?: HeaderForwardingConfig;
 };
 
+export type AuthConfig =
+  | {
+    type: "basic";
+    username: string;
+    password: string;
+  }
+  | {
+    type: "bearer";
+    token: string;
+  }
+  | {
+    type: "oauth2";
+    /** OAuth 2.0 token endpoint used for the client-credentials grant. */
+    issuer: string;
+    clientId: string;
+    clientSecret: string;
+    scope?: string;
+  };
+
 export type ForwardingConfig = {
-  /** Base URL for every forwarded workload request. */
+  /** Regular expression matched against the complete requested target URL. */
   target: string;
-  /** URLs permitted for the initial request and every redirect. */
-  outboundUrlAllowlist: readonly string[];
   /** Optional HTTP method restriction. Default: all supported methods. */
   methods?: string[];
   /** Optional request forwarding settings. */
@@ -36,13 +55,12 @@ export type ForwardingConfig = {
 /** Settings read from the one hot-reloadable file mounted into the container. */
 export type VolumeConfig = {
   connection: {
-    websocketUrl: string;
     heartbeatIntervalMs: number;
   };
   logging: {
     level: LogLevel;
   };
-  forwarding: ForwardingConfig;
+  forwarding: readonly ForwardingConfig[];
 };
 
 /**
@@ -69,7 +87,7 @@ export type ConnectorConfig = EnvironmentConfig & {
   websocketUrl: string;
   heartbeatIntervalMs: number;
   logLevel: LogLevel;
-  forwarding: ForwardingConfig;
+  forwarding: readonly ForwardingConfig[];
 };
 
 export const defaultConfigPath = "/config/cloud-connector.yml";
@@ -212,7 +230,7 @@ export function combineConfig(
 
   return {
     ...environment,
-    websocketUrl: volume.connection.websocketUrl,
+    websocketUrl: deriveWebSocketUrl(environment.cloudConnectorHost),
     heartbeatIntervalMs: volume.connection.heartbeatIntervalMs,
     logLevel: volume.logging.level,
     forwarding: volume.forwarding,
@@ -230,13 +248,8 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
   const connection = requireRecord(config.connection, "connection");
   rejectUnknown(
     connection,
-    ["websocketUrl", "heartbeatIntervalSeconds"],
+    ["heartbeatIntervalSeconds"],
     "connection",
-  );
-  const websocketUrl = requireAbsoluteUrl(
-    connection.websocketUrl,
-    "connection.websocketUrl",
-    ["ws:", "wss:"],
   );
   const heartbeatIntervalSeconds = connection.heartbeatIntervalSeconds ===
       undefined
@@ -264,69 +277,60 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
 
   return {
     connection: {
-      websocketUrl,
       heartbeatIntervalMs: heartbeatIntervalSeconds * 1000,
     },
     logging: { level: logLevel },
-    forwarding: validateAndNormalizeForwardingConfig(config.forwarding),
+    forwarding: validateAndNormalizeForwardingConfigs(config.forwarding),
   };
+}
+
+function validateAndNormalizeForwardingConfigs(
+  value: unknown,
+): readonly ForwardingConfig[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("forwarding must be a non-empty array of rules");
+  }
+  return value.map((entry, index) =>
+    validateAndNormalizeForwardingConfig(entry, `forwarding[${index}]`)
+  );
 }
 
 function validateAndNormalizeForwardingConfig(
   value: unknown,
+  path: string,
 ): ForwardingConfig {
-  const config = requireRecord(value, "forwarding");
+  const config = requireRecord(value, path);
   rejectUnknown(
     config,
     [
       "target",
-      "outboundUrlAllowlist",
       "methods",
       "request",
       "response",
       "timeout",
     ],
-    "forwarding",
+    path,
   );
-  requireNonEmptyString(config.target, "forwarding.target");
-  validateTargetTemplate(config.target);
-
-  let outboundUrlAllowlist: string[] = [];
-  if (config.outboundUrlAllowlist !== undefined) {
-    if (
-      !Array.isArray(config.outboundUrlAllowlist) ||
-      config.outboundUrlAllowlist.some((pattern) =>
-        typeof pattern !== "string" || !pattern.trim()
-      )
-    ) {
-      throw new Error(
-        "forwarding.outboundUrlAllowlist must be an array of non-empty strings",
-      );
-    }
-    outboundUrlAllowlist = config.outboundUrlAllowlist.map((pattern, index) => {
-      const normalized = pattern.trim();
-      try {
-        new RegExp(normalized, "u");
-      } catch (error) {
-        throw new Error(
-          `forwarding.outboundUrlAllowlist[${index}] is not a valid regular expression`,
-          { cause: error },
-        );
-      }
-      return normalized;
+  requireNonEmptyString(config.target, `${path}.target`);
+  const target = config.target.trim();
+  try {
+    new RegExp(target, "u");
+  } catch (error) {
+    throw new Error(`${path}.target is not a valid regular expression`, {
+      cause: error,
     });
   }
 
   if (config.methods !== undefined) {
     if (
-      !Array.isArray(config.methods) || config.methods.length === 0 ||
+      !Array.isArray(config.methods) ||
       new Set(config.methods).size !== config.methods.length ||
       config.methods.some((method) =>
         typeof method !== "string" || !supportedMethods.has(method)
       )
     ) {
       throw new Error(
-        "forwarding.methods must be a non-empty array of supported uppercase HTTP methods",
+        `${path}.methods must be an array of supported uppercase HTTP methods`,
       );
     }
   }
@@ -337,15 +341,18 @@ function validateAndNormalizeForwardingConfig(
       config.timeout > 300_000)
   ) {
     throw new Error(
-      "forwarding.timeout must be an integer between 1000 and 300000",
+      `${path}.timeout must be an integer between 1000 and 300000`,
     );
   }
-  if (config.request !== undefined) validateRequestConfig(config.request);
-  if (config.response !== undefined) validateResponseConfig(config.response);
+  if (config.request !== undefined) {
+    validateRequestConfig(config.request, `${path}.request`);
+  }
+  if (config.response !== undefined) {
+    validateResponseConfig(config.response, `${path}.response`);
+  }
 
   return {
-    target: config.target,
-    outboundUrlAllowlist,
+    target,
     methods: config.methods as string[] | undefined,
     request: config.request as RequestForwardingConfig | undefined,
     response: config.response as ResponseForwardingConfig | undefined,
@@ -353,18 +360,18 @@ function validateAndNormalizeForwardingConfig(
   };
 }
 
-function validateRequestConfig(value: unknown): void {
-  const config = requireRecord(value, "forwarding.request");
+function validateRequestConfig(value: unknown, path: string): void {
+  const config = requireRecord(value, path);
   rejectUnknown(
     config,
-    ["headers", "pathPrefix"],
-    "forwarding.request",
+    ["headers", "pathPrefix", "auth"],
+    path,
   );
   if (config.headers !== undefined) {
-    validateHeaderConfig(config.headers, "forwarding.request.headers");
+    validateHeaderConfig(config.headers, `${path}.headers`);
   }
   if (config.pathPrefix !== undefined) {
-    requireString(config.pathPrefix, "forwarding.request.pathPrefix");
+    requireString(config.pathPrefix, `${path}.pathPrefix`);
     if (
       !config.pathPrefix.startsWith("/") ||
       config.pathPrefix.startsWith("//") ||
@@ -374,18 +381,64 @@ function validateRequestConfig(value: unknown): void {
       config.pathPrefix.includes("}}")
     ) {
       throw new Error(
-        "forwarding.request.pathPrefix must be an absolute path without query or fragment",
+        `${path}.pathPrefix must be an absolute path without query or fragment`,
       );
     }
   }
+  if (config.auth !== undefined) {
+    validateAuthConfig(config.auth, `${path}.auth`);
+  }
 }
 
-function validateResponseConfig(value: unknown): void {
-  const config = requireRecord(value, "forwarding.response");
-  rejectUnknown(config, ["headers"], "forwarding.response");
+function validateResponseConfig(value: unknown, path: string): void {
+  const config = requireRecord(value, path);
+  rejectUnknown(config, ["headers"], path);
   if (config.headers !== undefined) {
-    validateHeaderConfig(config.headers, "forwarding.response.headers");
+    validateHeaderConfig(config.headers, `${path}.headers`);
   }
+}
+
+function validateAuthConfig(value: unknown, path: string): void {
+  const config = requireRecord(value, path);
+  requireNonEmptyString(config.type, `${path}.type`);
+  if (config.type === "basic") {
+    rejectUnknown(config, ["type", "username", "password"], path);
+    validateAuthValue(config.username, `${path}.username`);
+    validateAuthValue(config.password, `${path}.password`);
+    return;
+  }
+  if (config.type === "bearer") {
+    rejectUnknown(config, ["type", "token"], path);
+    validateAuthValue(config.token, `${path}.token`);
+    return;
+  }
+  if (config.type === "oauth2") {
+    rejectUnknown(
+      config,
+      ["type", "issuer", "clientId", "clientSecret", "scope"],
+      path,
+    );
+    validateAuthValue(config.issuer, `${path}.issuer`);
+    validateAuthValue(config.clientId, `${path}.clientId`);
+    validateAuthValue(config.clientSecret, `${path}.clientSecret`);
+    if (config.scope !== undefined) {
+      validateAuthValue(config.scope, `${path}.scope`);
+    }
+    if (!(config.issuer as string).includes("{{")) {
+      requireAbsoluteUrl(config.issuer, `${path}.issuer`, ["http:", "https:"]);
+    }
+    return;
+  }
+  throw new Error(`${path}.type must be one of: basic, bearer, oauth2`);
+}
+
+function validateAuthValue(value: unknown, path: string): void {
+  requireNonEmptyString(value, path);
+  validateTemplateExpressions(
+    value,
+    path,
+    (expression) => /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
+  );
 }
 
 function validateHeaderConfig(value: unknown, path: string): void {
@@ -408,26 +461,21 @@ function validateHeaderConfig(value: unknown, path: string): void {
   }
 }
 
-function validateTargetTemplate(target: string): void {
-  validateTemplateExpressions(
-    target,
-    "forwarding.target",
-    (expression) => /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
-  );
-  if (!target.includes("{{")) {
-    requireAbsoluteUrl(target, "forwarding.target", ["http:", "https:"]);
-  }
-}
-
 function validateHeaderTemplate(template: string, path: string): void {
   validateTemplateExpressions(
     template,
     path,
     (expression) =>
-      /^env\.[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ||
+      /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ||
       expression === "context.requestId" ||
       expression === "context.startedAt",
   );
+}
+
+export function deriveWebSocketUrl(cloudConnectorHost: string): string {
+  const url = new URL("connector/ws", cloudConnectorHost);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 function validateTemplateExpressions(

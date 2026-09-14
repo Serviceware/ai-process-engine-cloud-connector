@@ -1,11 +1,12 @@
 # Cloud Connector starter
 
-This template connects Serviceware Cloud to one internal HTTP service.
+This template connects Serviceware Cloud to explicitly allowed internal HTTP
+targets.
 
 ## Use it
 
 1. Copy .env.example to .env and enter the Serviceware credentials.
-2. Edit config/cloud-connector.yml and set the cloud connection and target.
+2. Edit config/cloud-connector.yml and set the target rules.
 3. Start and check the connector:
 
 ```bash
