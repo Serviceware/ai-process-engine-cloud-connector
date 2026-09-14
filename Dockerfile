@@ -1,5 +1,11 @@
 FROM denoland/deno:2.8.1
 
+LABEL org.opencontainers.image.title="Serviceware Cloud Connector" \
+    org.opencontainers.image.description="Connects Serviceware Cloud to an internal HTTP service" \
+    org.opencontainers.image.source="https://github.com/Serviceware/ai-process-engine-cloud-connector" \
+    org.opencontainers.image.documentation="https://github.com/Serviceware/ai-process-engine-cloud-connector/blob/main/docs/INSTALLATION.md" \
+    org.opencontainers.image.licenses="MIT"
+
 # Create app directory
 WORKDIR /app
 

@@ -59,6 +59,10 @@ jobs:
           done
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
           echo "major=${version%%.*}" >> "${GITHUB_OUTPUT}"
+          echo "minor=${version%.*}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -79,6 +83,7 @@ jobs:
             latest=false
           tags: |
             type=raw,value=${{ steps.version.outputs.value }}
+            type=raw,value=${{ steps.version.outputs.minor }}
             type=raw,value=${{ steps.version.outputs.major }}
 
       - name: Build and push image
@@ -86,9 +91,11 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
 
@@ -99,10 +106,33 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: Pull the published digest
-        run: docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
+      - name: Verify public multi-platform image
         env:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          docker logout ghcr.io
+
+          for attempt in {1..12}; do
+            if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}@${IMAGE_DIGEST}")"; then
+              break
+            fi
+            if [[ "${attempt}" == "12" ]]; then
+              echo "Published image is not anonymously readable from GHCR." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+          platforms="$(jq --compact-output '
+            [.manifests[].platform
+              | select(.os == "linux")
+              | "\(.os)/\(.architecture)"]
+            | unique
+            | sort
+          ' <<< "${manifest}")"
+          [[ "${platforms}" == '["linux/amd64","linux/arm64"]' ]]
+
+          docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
 
       - name: Start published Cloud Connector image
         run: |
@@ -138,3 +168,17 @@ jobs:
         run: |
           docker logs cloud-connector-release-smoke || true
           docker rm --force cloud-connector-release-smoke || true
+
+      - name: Add image details to workflow summary
+        if: success()
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          echo "## Published Cloud Connector ${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo >> "${GITHUB_STEP_SUMMARY}"
+          echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
+          echo "docker pull ${IMAGE_NAME}:${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          echo >> "${GITHUB_STEP_SUMMARY}"
+          echo "Immutable digest: \`${IMAGE_NAME}@${IMAGE_DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"

@@ -56,6 +56,21 @@ token endpoint and tokens are cached until shortly before expiry.
 Most installations can use the default resilience settings. If tuning is needed,
 those values remain environment variables.
 
+## Container image
+
+Release images are published by this repository to the GitHub Container Registry
+for Linux AMD64 and ARM64. Pull an immutable release without signing in:
+
+```bash
+docker pull ghcr.io/serviceware/cloud-connector:3.0.0
+```
+
+Use the complete `MAJOR.MINOR.PATCH` tag in production. `MAJOR.MINOR` and
+`MAJOR` move to the newest compatible release; `latest` changes only after a
+release is explicitly promoted. Published versions and their digests are listed
+in the repository's
+[Cloud Connector package](https://github.com/orgs/Serviceware/packages/container/package/cloud-connector).
+
 ## Start
 
 ```bash

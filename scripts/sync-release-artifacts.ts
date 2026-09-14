@@ -8,15 +8,17 @@ if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
   );
 }
 
-const composeFiles = [
+const imageReferenceFiles = [
   "templates/starter/docker-compose.yml",
   "templates/examples/ticketing-yaml/docker-compose.yml",
+  "README.md",
+  "docs/INSTALLATION.md",
 ];
 const imagePattern = /(ghcr\.io\/serviceware\/cloud-connector:)([^\s"']+)/g;
 const expectedImage = `ghcr.io/serviceware/cloud-connector:${version}`;
 const changedFiles: string[] = [];
 
-for (const path of composeFiles) {
+for (const path of imageReferenceFiles) {
   const original = await Deno.readTextFile(path);
   const matches = [...original.matchAll(imagePattern)];
   if (matches.length !== 1) {

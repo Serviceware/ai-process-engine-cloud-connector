@@ -14,3 +14,8 @@ Serviceware host and OAuth credentials remain required environment settings; the
 WebSocket URL is derived from that host and a configurable purpose that defaults
 to `main`. Low-level reconnect, token, watchdog, and liveness tuning stays
 optional.
+
+Publish attested release images for Linux AMD64 and ARM64 in the
+repository-linked GitHub Container Registry package, with immutable
+semantic-version tags, SBOMs, provenance attestations, and verified anonymous
+pulls.
