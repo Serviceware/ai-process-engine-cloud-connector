@@ -31,7 +31,7 @@ follow [Semantic Versioning](https://semver.org/).
 - Supports Basic, Bearer, and OAuth 2.0 client-credentials authentication for
   forwarded requests, including environment-backed secrets and token caching.
 
-## 3.0.0 - 2026-08-31
+## 1.0.0 - 2026-08-31
 
 ### Breaking changes
 
@@ -70,7 +70,7 @@ follow [Semantic Versioning](https://semver.org/).
   arbitrary URL rewrites from the configuration contract.
 - Documented default-deny configuration, safe regular-expression examples, and
   the YAML-only deployment migration.
-- Pinned maintained container examples to `3.0.0` instead of `latest`.
+- Pinned maintained container examples to `1.0.0` instead of `latest`.
 
 ### Fixed
 
