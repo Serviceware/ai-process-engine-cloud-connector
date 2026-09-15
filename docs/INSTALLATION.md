@@ -50,8 +50,8 @@ normally do not need adjustment.
 
 - Check the container logs.
 - Confirm the Serviceware host and credentials.
-- Confirm that `CLOUD_CONNECTOR_HOST` is correct; the WebSocket URL is derived
-  from it automatically.
+- Confirm that `CLOUD_CONNECTOR_HOST` and the optional connection `purpose` are
+  correct; the WebSocket URL is derived from them automatically.
 - Confirm that the complete target URL matches a forwarding rule.
 - Validate the YAML file for indentation or typing errors.
 

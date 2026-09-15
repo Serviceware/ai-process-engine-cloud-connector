@@ -10,6 +10,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "default": "main",
+          "description": "Configuration Store connector purpose used in the WebSocket endpoint."
+        },
         "heartbeatIntervalSeconds": {
           "type": "integer",
           "minimum": 1,

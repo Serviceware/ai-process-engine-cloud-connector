@@ -20,6 +20,7 @@ The YAML file is the single place for day-to-day operating changes:
 
 ```yaml
 connection:
+  purpose: main
   heartbeatIntervalSeconds: 30
 
 logging:
@@ -37,8 +38,9 @@ forwarding:
 
 Changes to this file are checked and applied while the connector is running. If
 a change is invalid, the previous working configuration remains active. The
-WebSocket URL is derived from `CLOUD_CONNECTOR_HOST`. Connection changes cause a
-reconnect; forwarding or logging changes apply to the next call.
+WebSocket URL is derived from `CLOUD_CONNECTOR_HOST` and the connection
+`purpose`, which defaults to `main`. Connection changes cause a reconnect;
+forwarding or logging changes apply to the next call.
 
 Each forwarding `target` is a regular expression matched against the complete
 absolute request URL. All matching rules are merged in order; later explicit

@@ -55,6 +55,7 @@ export type ForwardingConfig = {
 /** Settings read from the one hot-reloadable file mounted into the container. */
 export type VolumeConfig = {
   connection: {
+    purpose: string;
     heartbeatIntervalMs: number;
   };
   logging: {
@@ -230,7 +231,10 @@ export function combineConfig(
 
   return {
     ...environment,
-    websocketUrl: deriveWebSocketUrl(environment.cloudConnectorHost),
+    websocketUrl: deriveWebSocketUrl(
+      environment.cloudConnectorHost,
+      volume.connection.purpose,
+    ),
     heartbeatIntervalMs: volume.connection.heartbeatIntervalMs,
     logLevel: volume.logging.level,
     forwarding: volume.forwarding,
@@ -248,9 +252,12 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
   const connection = requireRecord(config.connection, "connection");
   rejectUnknown(
     connection,
-    ["heartbeatIntervalSeconds"],
+    ["purpose", "heartbeatIntervalSeconds"],
     "connection",
   );
+  const purpose = connection.purpose === undefined
+    ? "main"
+    : requireTrimmedNonEmptyString(connection.purpose, "connection.purpose");
   const heartbeatIntervalSeconds = connection.heartbeatIntervalSeconds ===
       undefined
     ? defaultHeartbeatSeconds
@@ -277,6 +284,7 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
 
   return {
     connection: {
+      purpose,
       heartbeatIntervalMs: heartbeatIntervalSeconds * 1000,
     },
     logging: { level: logLevel },
@@ -472,9 +480,17 @@ function validateHeaderTemplate(template: string, path: string): void {
   );
 }
 
-export function deriveWebSocketUrl(cloudConnectorHost: string): string {
-  const url = new URL("connector/ws", cloudConnectorHost);
+export function deriveWebSocketUrl(
+  cloudConnectorHost: string,
+  purpose = "main",
+): string {
+  const url = new URL(cloudConnectorHost);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `/configuration-store/api/v1/connector/${
+    encodeURIComponent(purpose)
+  }/connect`;
+  url.search = "";
+  url.hash = "";
   return url.toString();
 }
 
@@ -571,6 +587,11 @@ function requireNonEmptyString(
 ): asserts value is string {
   requireString(value, path);
   if (!value.trim()) throw new Error(`${path} must not be empty`);
+}
+
+function requireTrimmedNonEmptyString(value: unknown, path: string): string {
+  requireNonEmptyString(value, path);
+  return value.trim();
 }
 
 function requirePositiveInteger(value: unknown, name: string): number {

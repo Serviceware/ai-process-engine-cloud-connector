@@ -125,6 +125,7 @@ Deno.test("loadEnvironmentConfig rejects invalid resilience ratios and factors",
 Deno.test("parseVolumeConfig normalizes all operational YAML settings", () => {
   const config = parseVolumeConfig(`
 connection:
+  purpose: inventory
   heartbeatIntervalSeconds: 15
 logging:
   level: debug
@@ -136,6 +137,7 @@ forwarding:
 
   assertEquals(config, {
     connection: {
+      purpose: "inventory",
       heartbeatIntervalMs: 15_000,
     },
     logging: { level: "debug" },
@@ -151,20 +153,24 @@ forwarding:
 
 Deno.test("parseVolumeConfig applies hot-reloadable defaults", () => {
   const config = parseVolumeConfig(minimalYaml);
+  assertEquals(config.connection.purpose, "main");
   assertEquals(config.connection.heartbeatIntervalMs, 30_000);
   assertEquals(config.logging.level, "info");
   assertEquals(config.forwarding.length, 1);
 });
 
-Deno.test("combineConfig derives the WebSocket endpoint from the cloud host", () => {
+Deno.test("combineConfig derives the WebSocket endpoint from host and purpose", () => {
   const config = combineConfig(
     loadEnvironmentConfig(requiredEnvironment),
     parseVolumeConfig(minimalYaml),
   );
-  assertEquals(config.websocketUrl, "wss://cloud.example/connector/ws");
   assertEquals(
-    deriveWebSocketUrl("http://localhost:8000/base/"),
-    "ws://localhost:8000/base/connector/ws",
+    config.websocketUrl,
+    "wss://cloud.example/configuration-store/api/v1/connector/main/connect",
+  );
+  assertEquals(
+    deriveWebSocketUrl("http://localhost:8000/base/?old=true", "inventory v2"),
+    "ws://localhost:8000/configuration-store/api/v1/connector/inventory%20v2/connect",
   );
 });
 
@@ -175,6 +181,7 @@ Deno.test("parseVolumeConfig rejects malformed, unknown, and removed config", ()
       "connection: {}\nforwarding: {}",
       `${minimalYaml}\nunknown: true`,
       `${minimalYaml}\nlogging:\n  level: trace`,
+      "connection:\n  purpose: '  '\nforwarding:\n  - target: https://internal.example",
       `${minimalYaml}\nforwarding:\n  - target: https://internal.example\n    body: changed`,
     ]
   ) {

@@ -2,6 +2,7 @@
 
 # Runtime settings in this mounted file are hot-reloaded.
 connection:
+  purpose: main
   heartbeatIntervalSeconds: 30
 
 logging:
