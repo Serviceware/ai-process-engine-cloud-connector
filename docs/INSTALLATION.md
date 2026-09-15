@@ -3,6 +3,16 @@
 The connector needs Docker, access to Serviceware Cloud, and network access to
 the internal target service.
 
+Release images are hosted in the repository's GitHub Container Registry package
+and are publicly pullable without authentication:
+
+```bash
+docker pull ghcr.io/serviceware/cloud-connector:1.0.0
+```
+
+Pin the complete release version in production. The maintained Compose templates
+already do this and are updated by the release automation.
+
 ## Before you start
 
 - A Cloud Connector with the same `connection.purpose` (default `main`) must

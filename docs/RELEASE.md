@@ -36,10 +36,25 @@ version in both maintained Compose examples.
 
 After merging the release pull request, start the workflow manually again. This
 creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
-container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` and the
-matching major tag. A manually pushed semantic version tag still runs the
-container release workflow as a recovery path.
+container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux
+AMD64 and ARM64. It also updates the moving `X.Y` and `X` tags, attaches SBOM
+and provenance data, checks the published manifest, and proves the package is
+anonymously pullable before the release succeeds. A manually pushed semantic
+version tag still runs the container release workflow as a recovery path.
 
 The repository setting **Actions > General > Allow GitHub Actions to create and
-approve pull requests** must be enabled. Promote the moving `latest` tag only
-after the release has been approved.
+approve pull requests** must be enabled. The first workflow publication creates
+and links the `cloud-connector` package through `GITHUB_TOKEN` and its OCI
+source label. If organization policy disables inherited public visibility, an
+organization owner must open the package settings once, connect this repository,
+and set the package visibility to **Public**; the anonymous-pull verification
+will fail until that is done. Promote the moving `latest` tag only after the
+release has been approved.
+
+## Development images
+
+Every successful push to `main` publishes the same commit for Linux AMD64 and
+ARM64 under the moving `dev` tag and the immutable `sha-<full-commit-sha>` tag.
+The workflow verifies that the resulting image is anonymously readable. Use
+these tags for integration testing only; production deployments should stay on a
+complete semantic version.
