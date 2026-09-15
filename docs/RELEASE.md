@@ -35,7 +35,7 @@ entries, updates `deno.json` and `CHANGELOG.md`, and synchronizes the image
 version in both maintained Compose examples.
 
 After merging the release pull request, start the workflow manually again. This
-creates `vX.Y.Z` and a GitHub Release. The pushed tag invokes the verified
+creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
 container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux
 AMD64 and ARM64. It also updates the moving `X.Y` and `X` tags, attaches SBOM
 and provenance data, checks the published manifest, and proves the package is

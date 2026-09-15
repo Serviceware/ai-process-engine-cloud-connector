@@ -24,6 +24,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      published: ${{ steps.result.outputs.published }}
+      version: ${{ steps.result.outputs.version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,6 +49,7 @@ jobs:
         run: deno task release:version
 
       - name: Create release pull request or publish current version
+        id: result
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -77,6 +81,7 @@ jobs:
                 --title "chore: release Cloud Connector" \
                 --body "Apply pending Deno Changesets and prepare the next Cloud Connector release."
             fi
+            echo "published=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -93,3 +98,18 @@ jobs:
             --verify-tag \
             --title "Cloud Connector ${version}" \
             --generate-notes
+          echo "published=true" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  publish-container:
+    name: Publish released container
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
