@@ -35,7 +35,7 @@ entries, updates `deno.json` and `CHANGELOG.md`, and synchronizes the image
 version in both maintained Compose examples.
 
 After merging the release pull request, start the workflow manually again. This
-creates `vX.Y.Z` and a GitHub Release. The pushed tag invokes the verified
+creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
 container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` and the
 matching major tag. A manually pushed semantic version tag still runs the
 container release workflow as a recovery path.
