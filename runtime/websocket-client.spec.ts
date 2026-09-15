@@ -23,9 +23,12 @@ const baseConfig: ConnectorConfig = {
   tokenFetchTimeoutMs: 1_000,
   reconnectJitterRatio: 0,
   livenessStaleMs: 60_000,
+  maxResponseBodyBytes: 10_485_760,
+  maxConcurrentRequests: 100,
+  drainTimeoutMs: 50,
   logLevel: "error",
   forwarding: [{
-    target: "https://internal.example",
+    target: "^https://internal[.]example(?:/.*)?$",
   }],
 };
 
@@ -121,11 +124,57 @@ Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change
       websocketUrl: "wss://cloud.example/reloaded",
       heartbeatIntervalMs: 5,
       forwarding: [{
-        target: "https://replacement.example",
+        target: "^https://replacement[.]example(?:/.*)?$",
       }],
     });
     await delayMs(10);
     assertEquals(FakeWebSocket.instances.length, 2);
+
+    abortController.abort();
+    await running;
+  });
+});
+
+Deno.test("ReloadableWebSocketClient drains accepted requests before reconnecting", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    let release!: () => void;
+    let started = false;
+    const gate = new Promise<void>((resolve) => release = resolve);
+    const runtime = new ConnectorRuntime({
+      protocolExecutor: {
+        execute: async () => {
+          started = true;
+          await gate;
+          return { statusCode: 204 };
+        },
+      },
+      logger: silentLogger,
+    });
+    const abortController = new AbortController();
+    const client = new ReloadableWebSocketClient(
+      baseConfig,
+      runtime,
+      status,
+      silentLogger,
+    );
+    const running = client.run(abortController.signal);
+    await waitUntil(() => FakeWebSocket.instances.length === 1);
+    const socket = FakeWebSocket.instances[0];
+    socket.receive(JSON.stringify({
+      type: "request",
+      requestId: "in-flight",
+      request: { method: "GET", url: "https://internal.example/items" },
+    }));
+    await waitUntil(() => started);
+
+    client.replace({ ...baseConfig, websocketUrl: "wss://cloud.example/new" });
+    await delayMs(10);
+    assertEquals(socket.closed, false);
+    release();
+    await waitUntil(() => FakeWebSocket.instances.length === 2);
+    assertEquals(socket.closed, true);
+    assertEquals(JSON.parse(socket.sent.at(-1)!).requestId, "in-flight");
 
     abortController.abort();
     await running;
@@ -198,6 +247,31 @@ Deno.test("runCloudWebSocketClient force-closes a half-open socket via the watch
   });
 });
 
+Deno.test("runCloudWebSocketClient force-settles when close never arrives", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "openSilentNoClose";
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      {
+        ...baseConfig,
+        heartbeatIntervalMs: 5,
+        heartbeatTimeoutFactor: 2,
+      },
+      createRuntime(),
+      abortController.signal,
+      status,
+      silentLogger,
+    );
+
+    await waitUntil(() => FakeWebSocket.instances[0]?.closed === true, 400);
+    FakeWebSocket.behavior = "open";
+    await waitUntil(() => FakeWebSocket.instances.length >= 2, 1_500);
+    assertEquals(status.connectionState, "open");
+    abortController.abort();
+    await client;
+  });
+});
+
 Deno.test("runCloudWebSocketClient keeps a socket with inbound traffic open", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openWithInbound";
@@ -256,7 +330,7 @@ Deno.test("runCloudWebSocketClient does not hang when aborted during the token f
         // Shutdown arrives while the token is still being fetched.
         abortController.abort();
         return Promise.resolve(Response.json({
-          auth: { issuer: "https://auth.example/realms/serviceware" },
+          auth: { issuer: "https://cloud.example/realms/serviceware" },
         }));
       }
       return Promise.resolve(Response.json({ access_token: "access-token" }));
@@ -314,12 +388,12 @@ async function withFakeCloud(
       const url = input instanceof Request ? input.url : input.toString();
       if (url === "https://cloud.example/.well-known") {
         return Promise.resolve(Response.json({
-          auth: { issuer: "https://auth.example/realms/serviceware" },
+          auth: { issuer: "https://cloud.example/realms/serviceware" },
         }));
       }
       if (
         url ===
-          "https://auth.example/realms/serviceware/protocol/openid-connect/token"
+          "https://cloud.example/realms/serviceware/protocol/openid-connect/token"
       ) {
         return Promise.resolve(
           Response.json({ access_token: "access-token" }),
@@ -371,6 +445,7 @@ type FakeBehavior =
   | "open"
   | "openThenClose"
   | "openSilent"
+  | "openSilentNoClose"
   | "openWithInbound"
   | "neverOpen";
 
@@ -430,6 +505,7 @@ class FakeWebSocket extends EventTarget {
       clearInterval(this.#inboundTimer);
       this.#inboundTimer = undefined;
     }
+    if (FakeWebSocket.behavior === "openSilentNoClose") return;
     this.dispatchEvent(new Event("close"));
   }
 }

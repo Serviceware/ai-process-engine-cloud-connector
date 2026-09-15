@@ -19,7 +19,11 @@ import { createLogger, createReloadableLogger } from "./logger.ts";
 import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
 import { delay, ReloadableWebSocketClient } from "./websocket-client.ts";
-import { createYamlForwardingExecutor } from "./yaml-forwarding.ts";
+import {
+  createOAuthTokenCache,
+  createYamlForwardingExecutor,
+  type OAuthTokenCache,
+} from "./yaml-forwarding.ts";
 
 /** Exit codes (sysexits.h) so a supervisor can distinguish failure modes. */
 const EX_SOFTWARE = 70;
@@ -30,13 +34,20 @@ export function createProtocolExecutor(
   config: ConnectorConfig,
   configPath: string,
   logger: RuntimeLogger = createLogger(config.logLevel),
+  oauthTokenCache: OAuthTokenCache = createOAuthTokenCache(),
 ): Promise<ProtocolExecutor> {
-  return createYamlForwardingExecutor({ config, configPath, logger });
+  return createYamlForwardingExecutor({
+    config,
+    configPath,
+    logger,
+    oauthTokenCache,
+  });
 }
 
 export type RuntimeBundle = {
   runtime: ConnectorRuntime;
   protocolExecutor: ReloadableProtocolExecutor;
+  oauthTokenCache: OAuthTokenCache;
 };
 
 export async function createRuntimeBundle(
@@ -45,22 +56,20 @@ export async function createRuntimeBundle(
   logger: RuntimeLogger = createLogger(config.logLevel),
 ): Promise<RuntimeBundle> {
   logger.info("Starting Cloud Connector forward proxy");
+  const oauthTokenCache = createOAuthTokenCache();
   const initialExecutor = await createProtocolExecutor(
     config,
     configPath,
     logger,
+    oauthTokenCache,
   );
   const protocolExecutor = new ReloadableProtocolExecutor(initialExecutor);
-  const runtime = new ConnectorRuntime({ protocolExecutor, logger });
-  return { runtime, protocolExecutor };
-}
-
-export async function createRuntime(
-  config: ConnectorConfig,
-  configPath: string,
-  logger: RuntimeLogger = createLogger(config.logLevel),
-): Promise<ConnectorRuntime> {
-  return (await createRuntimeBundle(config, configPath, logger)).runtime;
+  const runtime = new ConnectorRuntime({
+    protocolExecutor,
+    logger,
+    maximumConcurrentRequests: config.maxConcurrentRequests,
+  });
+  return { runtime, protocolExecutor, oauthTokenCache };
 }
 
 export function createHandler(
@@ -90,6 +99,14 @@ export function createHandler(
         {
           status: websocketConnected ? "ready" : "not_ready",
           websocketConnected,
+          connectionState: status.connectionState,
+          reconnectAttempt: status.reconnectAttempt,
+          lastConnectedAt: status.lastConnectedAt,
+          lastInboundAt: status.lastInboundAt,
+          configReload: {
+            lastAttemptAt: status.lastReloadAt,
+            succeeded: status.lastReloadSucceeded,
+          },
         },
         { status: websocketConnected ? 200 : 503 },
       );
@@ -242,6 +259,7 @@ if (import.meta.main) {
         nextConfig,
         configPath,
         logger,
+        runtimeBundle.oauthTokenCache,
       );
 
       runtimeBundle.protocolExecutor.replace(nextExecutor);
@@ -251,6 +269,7 @@ if (import.meta.main) {
       logOutboundPolicy(config, logger);
     },
     logger,
+    status,
   );
 
   // First bind is fatal: a port conflict is unrecoverable in-process.

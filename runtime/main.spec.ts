@@ -29,7 +29,7 @@ const config = () =>
     parseVolumeConfig(`
 connection: {}
 forwarding:
-  - target: ^https://internal[.]example(?:/|$)
+  - target: ^https://internal[.]example(?:/.*)?$
 `),
   );
 
@@ -52,6 +52,11 @@ Deno.test("ready reflects the required outbound WebSocket connection", async () 
   assertEquals(await notReady.json(), {
     status: "not_ready",
     websocketConnected: false,
+    connectionState: "disconnected",
+    reconnectAttempt: 0,
+    lastConnectedAt: null,
+    lastInboundAt: null,
+    configReload: { lastAttemptAt: null, succeeded: null },
   });
 
   status.connectionState = "open";
@@ -60,6 +65,11 @@ Deno.test("ready reflects the required outbound WebSocket connection", async () 
   assertEquals(await ready.json(), {
     status: "ready",
     websocketConnected: true,
+    connectionState: "open",
+    reconnectAttempt: 0,
+    lastConnectedAt: null,
+    lastInboundAt: null,
+    configReload: { lastAttemptAt: null, succeeded: null },
   });
 });
 

@@ -50,7 +50,8 @@
         "target": {
           "type": "string",
           "minLength": 1,
-          "description": "Regular expression matched against the complete absolute HTTP(S) request URL."
+          "pattern": "^\\^.*\\$$",
+          "description": "Safe regular expression anchored with ^ and $ and matched against the complete absolute HTTP(S) request URL."
         },
         "methods": {
           "type": "array",
@@ -134,7 +135,12 @@
         "headers": { "$ref": "#/$defs/headerConfig" },
         "pathPrefix": {
           "type": "string",
-          "pattern": "^/(?!/)[^?#]*$"
+          "pattern": "^/(?!/)(?!.*(?:\\{\\{|\\}\\}))[^?#]*$"
+        },
+        "forwardIncomingCredentials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to forwarding inbound authorization and cookie headers."
         },
         "auth": { "$ref": "#/$defs/authConfig" }
       }
