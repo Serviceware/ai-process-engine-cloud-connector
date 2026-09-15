@@ -62,7 +62,7 @@ Release images are published by this repository to the GitHub Container Registry
 for Linux AMD64 and ARM64. Pull an immutable release without signing in:
 
 ```bash
-docker pull ghcr.io/serviceware/cloud-connector:3.0.0
+docker pull ghcr.io/serviceware/cloud-connector:1.0.0
 ```
 
 Use the complete `MAJOR.MINOR.PATCH` tag in production. `MAJOR.MINOR` and
