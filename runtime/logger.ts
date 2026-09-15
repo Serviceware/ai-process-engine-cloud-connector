@@ -7,6 +7,11 @@ export type RuntimeLogger = {
   debug: (...data: unknown[]) => void;
 };
 
+export type ReloadableRuntimeLogger = RuntimeLogger & {
+  level: () => LogLevel;
+  setLevel: (level: LogLevel) => void;
+};
+
 type LogSink = Pick<Console, "debug" | "error" | "info" | "warn">;
 
 const logLevels: Record<LogLevel, number> = {
@@ -43,6 +48,37 @@ export function createLogger(
     },
     debug: (...data) => {
       if (enabled >= logLevels.debug) {
+        sink.debug(...format("debug", data));
+      }
+    },
+  };
+}
+
+/** Logger whose threshold can be changed after an atomic YAML reload. */
+export function createReloadableLogger(
+  initialLevel: LogLevel = defaultLogLevel,
+  sink: LogSink = console,
+): ReloadableRuntimeLogger {
+  let level = initialLevel;
+
+  return {
+    level: () => level,
+    setLevel: (next) => {
+      level = next;
+    },
+    error: (...data) => sink.error(...format("error", data)),
+    warn: (...data) => {
+      if (logLevels[level] >= logLevels.warn) {
+        sink.warn(...format("warn", data));
+      }
+    },
+    info: (...data) => {
+      if (logLevels[level] >= logLevels.info) {
+        sink.info(...format("info", data));
+      }
+    },
+    debug: (...data) => {
+      if (logLevels[level] >= logLevels.debug) {
         sink.debug(...format("debug", data));
       }
     },

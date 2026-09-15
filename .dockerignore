@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!deno.json
+!deno.lock
+!runtime/
+!runtime/**

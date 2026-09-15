@@ -4,6 +4,7 @@ import {
 } from "./access-token.ts";
 import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
+import type { WebSocketAttachment } from "./connector.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
@@ -14,6 +15,61 @@ type OpenOutcome = {
   /** True if the socket stayed open longer than the stable threshold. */
   stableOpen: boolean;
 };
+
+/**
+ * Owns one resilient connection generation and replaces it when a hot-reload
+ * changes socket-level YAML settings. Forwarding-only changes do not disturb
+ * the active connection.
+ */
+export class ReloadableWebSocketClient {
+  private generationAbort?: AbortController;
+
+  constructor(
+    private config: ConnectorConfig,
+    private readonly runtime: ConnectorRuntime,
+    private readonly status: RuntimeStatus,
+    private readonly logger: RuntimeLogger,
+    private readonly controlPlaneFetch: Fetcher = globalThis.fetch,
+  ) {}
+
+  replace(config: ConnectorConfig): void {
+    const connectionChanged =
+      config.websocketUrl !== this.config.websocketUrl ||
+      config.heartbeatIntervalMs !== this.config.heartbeatIntervalMs;
+    this.config = config;
+    if (connectionChanged) this.generationAbort?.abort();
+  }
+
+  async run(signal: AbortSignal): Promise<void> {
+    while (!signal.aborted) {
+      const generationAbort = new AbortController();
+      this.generationAbort = generationAbort;
+      const generationSignal = AbortSignal.any([
+        signal,
+        generationAbort.signal,
+      ]);
+
+      await runCloudWebSocketClient(
+        this.config,
+        this.runtime,
+        generationSignal,
+        this.status,
+        this.logger,
+        this.controlPlaneFetch,
+      );
+
+      if (this.generationAbort === generationAbort) {
+        this.generationAbort = undefined;
+      }
+      if (!signal.aborted && !generationAbort.signal.aborted) {
+        this.logger.error(
+          "Cloud Connector WebSocket client exited unexpectedly; restarting",
+        );
+        await delay(1_000, signal);
+      }
+    }
+  }
+}
 
 /**
  * Maintains the outbound cloud WebSocket connection forever.
@@ -32,10 +88,6 @@ export async function runCloudWebSocketClient(
   logger: RuntimeLogger = createLogger(config.logLevel),
   controlPlaneFetch: Fetcher = globalThis.fetch,
 ): Promise<void> {
-  if (!config.websocketUrl) {
-    return;
-  }
-
   let attempt = 0;
   while (!signal.aborted) {
     status.lastTickAt = Date.now();
@@ -127,35 +179,63 @@ async function openWebSocket(
       return;
     }
 
-    const socket = new WebSocket(config.websocketUrl!, {
+    const socket = new WebSocket(config.websocketUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
     });
+    const attachment: WebSocketAttachment = runtime.attachWebSocket(socket);
 
     let opened = false;
     let openedAt = 0;
     let settled = false;
     let heartbeatId: ReturnType<typeof setInterval> | undefined;
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    let forceSettleTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeRequested = false;
 
-    const closeSocket = () => {
-      try {
-        socket.close();
-      } catch {
-        // already closing/closed
-      }
-    };
-    const abort = () => closeSocket();
-
-    function cleanup(): void {
+    const clearHeartbeat = () => {
       if (heartbeatId !== undefined) {
         clearInterval(heartbeatId);
         heartbeatId = undefined;
       }
+    };
+    const closeSocket = () => {
+      if (closeRequested) return;
+      closeRequested = true;
+      status.connectionState = "disconnected";
+      clearHeartbeat();
+      void attachment.drain(config.drainTimeoutMs).then((drained) => {
+        if (!drained) {
+          logger.warn(
+            `Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`,
+          );
+        }
+        try {
+          socket.close();
+        } catch {
+          // already closing/closed
+        }
+        if (!settled) {
+          forceSettleTimer = setTimeout(() => {
+            const stableOpen = opened &&
+              (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
+            settle({ stableOpen });
+          }, 1_000);
+        }
+      }).catch(fail);
+    };
+    const abort = () => closeSocket();
+
+    function cleanup(): void {
+      clearHeartbeat();
       if (connectTimer !== undefined) {
         clearTimeout(connectTimer);
         connectTimer = undefined;
+      }
+      if (forceSettleTimer !== undefined) {
+        clearTimeout(forceSettleTimer);
+        forceSettleTimer = undefined;
       }
       signal.removeEventListener("abort", abort);
     }
@@ -178,7 +258,11 @@ async function openWebSocket(
 
     connectTimer = setTimeout(() => {
       if (!opened) {
-        closeSocket();
+        try {
+          socket.close();
+        } catch {
+          // already closing/closed
+        }
         fail(
           new Error(
             `Cloud Connector WebSocket did not open within ${config.connectTimeoutMs}ms`,
@@ -186,9 +270,6 @@ async function openWebSocket(
         );
       }
     }, config.connectTimeoutMs);
-
-    // Frame processing (request/response/heartbeat handling, logging).
-    runtime.attachWebSocket(socket);
 
     // Any inbound frame proves the peer is alive.
     socket.addEventListener("message", () => {
@@ -265,13 +346,6 @@ function getAccessTokenOptions(
   signal: AbortSignal,
   fetcher: Fetcher,
 ): AccessTokenOptions {
-  if (
-    !config.cloudConnectorHost || !config.cloudConnectorClientId ||
-    !config.cloudConnectorClientSecret
-  ) {
-    throw new Error("Cloud Connector authentication is not configured.");
-  }
-
   return {
     host: config.cloudConnectorHost,
     clientId: config.cloudConnectorClientId,

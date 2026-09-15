@@ -5,7 +5,7 @@ export type HealthFetch = typeof fetch;
  * Checks if the Cloud Connector is responding to the health endpoint.
  */
 export async function checkHealth(
-  port = readHealthPort(),
+  port = 8080,
   fetcher: HealthFetch = fetch,
 ): Promise<number> {
   try {
@@ -14,12 +14,6 @@ export async function checkHealth(
   } catch {
     return 1;
   }
-}
-
-export function readHealthPort(
-  value = Deno.env.get("CONNECTOR_PORT") ?? "8080",
-): number {
-  return parseInt(value, 10);
 }
 
 if (import.meta.main) {
