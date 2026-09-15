@@ -92,6 +92,50 @@ Deno.test("ConnectorRuntime attaches to WebSocket messages and serializes respon
   }]);
 });
 
+Deno.test("ConnectorRuntime bounds concurrency and drains accepted requests", async () => {
+  let release!: () => void;
+  let started = false;
+  const gate = new Promise<void>((resolve) => release = resolve);
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: {
+      execute: async () => {
+        started = true;
+        await gate;
+        return { statusCode: 204 };
+      },
+    },
+    logger: silentLogger,
+    maximumConcurrentRequests: 1,
+  });
+  const socket = new FakeSocket();
+  const attachment = runtime.attachWebSocket(socket as unknown as WebSocket);
+  const request = (requestId: string) =>
+    new MessageEvent("message", {
+      data: JSON.stringify({
+        type: "request",
+        requestId,
+        request: { method: "GET", url: "/users" },
+      }),
+    });
+
+  socket.dispatchEvent(request("first"));
+  await waitUntil(() => started);
+  socket.dispatchEvent(request("excess"));
+  await nextTick();
+  const draining = attachment.drain(100);
+  socket.dispatchEvent(request("draining"));
+  await nextTick();
+
+  const errors = socket.sent.map((frame) => JSON.parse(frame))
+    .filter((frame) => frame.error);
+  assertEquals(errors.map((frame) => frame.error.code), [
+    "TOO_MANY_REQUESTS",
+    "CONNECTOR_DRAINING",
+  ]);
+  release();
+  assertEquals(await draining, true);
+});
+
 Deno.test("ReloadableProtocolExecutor switches subsequent requests atomically", async () => {
   const executor = new ReloadableProtocolExecutor({
     execute: () => Promise.resolve({ statusCode: 200, body: "first" }),
@@ -122,6 +166,14 @@ function createRuntime(
 
 function nextTick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitUntil(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (condition()) return;
+    await nextTick();
+  }
+  throw new Error("Condition was not met in time");
 }
 
 class FakeSocket extends EventTarget {

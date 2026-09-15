@@ -12,13 +12,13 @@ Deno.test("generateAccessToken resolves issuer and requests a client credentials
 
       if (url === "https://cloud.example/.well-known") {
         return Promise.resolve(Response.json({
-          auth: { issuer: "https://auth.example/realms/serviceware" },
+          auth: { issuer: "https://cloud.example/realms/serviceware" },
         }));
       }
 
       if (
         url ===
-          "https://auth.example/realms/serviceware/protocol/openid-connect/token"
+          "https://cloud.example/realms/serviceware/protocol/openid-connect/token"
       ) {
         return Promise.resolve(Response.json({ access_token: "access-token" }));
       }
@@ -39,7 +39,7 @@ Deno.test("generateAccessToken resolves issuer and requests a client credentials
     assertEquals(calls[0].url, "https://cloud.example/.well-known");
     assertEquals(
       calls[1].url,
-      "https://auth.example/realms/serviceware/protocol/openid-connect/token",
+      "https://cloud.example/realms/serviceware/protocol/openid-connect/token",
     );
     assertEquals(calls[1].init?.method, "POST");
     assertEquals(calls[1].init?.headers, {
@@ -66,7 +66,7 @@ Deno.test("generateAccessToken rejects token responses without access token", as
       const url = input instanceof Request ? input.url : input.toString();
       if (url === "https://cloud.example/.well-known") {
         return Promise.resolve(Response.json({
-          auth: { issuer: "https://auth.example/realms/serviceware" },
+          auth: { issuer: "https://cloud.example/realms/serviceware" },
         }));
       }
 
@@ -91,4 +91,21 @@ Deno.test("generateAccessToken rejects token responses without access token", as
       value: originalFetch,
     });
   }
+});
+
+Deno.test("generateAccessToken refuses to send secrets to a cross-origin issuer", async () => {
+  await assertRejects(
+    () =>
+      generateAccessToken({
+        host: "https://cloud.example/",
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        fetcher: () =>
+          Promise.resolve(Response.json({
+            auth: { issuer: "https://attacker.example/realms/serviceware" },
+          })),
+      }),
+    Error,
+    "does not match Cloud Connector host origin",
+  );
 });

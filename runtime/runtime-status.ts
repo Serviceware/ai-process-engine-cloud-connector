@@ -24,6 +24,10 @@ export type RuntimeStatus = {
   lastTickAt: number;
   /** Current consecutive reconnect attempt counter (observability only). */
   reconnectAttempt: number;
+  /** Epoch ms of the latest hot-reload attempt, or null before the first. */
+  lastReloadAt: number | null;
+  /** Whether the latest hot-reload attempt succeeded, or null before one. */
+  lastReloadSucceeded: boolean | null;
 };
 
 export function createRuntimeStatus(now: number = Date.now()): RuntimeStatus {
@@ -33,5 +37,7 @@ export function createRuntimeStatus(now: number = Date.now()): RuntimeStatus {
     lastInboundAt: null,
     lastTickAt: now,
     reconnectAttempt: 0,
+    lastReloadAt: null,
+    lastReloadSucceeded: null,
   };
 }

@@ -33,6 +33,7 @@ export type YamlForwardingExecutorOptions = {
   env?: Record<string, string>;
   logger?: RuntimeLogger;
   nextFetch?: Fetcher;
+  oauthTokenCache?: OAuthTokenCache;
 };
 
 type CompiledRule = {
@@ -45,14 +46,21 @@ type OAuthToken = {
   expiresAt: number;
 };
 
+export type OAuthTokenCache = {
+  tokens: Map<string, OAuthToken>;
+  inFlight: Map<string, Promise<string>>;
+};
+
+export function createOAuthTokenCache(): OAuthTokenCache {
+  return { tokens: new Map(), inFlight: new Map() };
+}
+
 /**
  * The complete inbound URL is authorized by one or more ordered YAML rules.
  * Matching rules are merged in declaration order, with later explicit values
  * taking precedence.
  */
 export class YamlForwardingExecutor implements ProtocolExecutor {
-  private readonly oauthTokens = new Map<string, OAuthToken>();
-
   private constructor(
     private readonly rules: readonly CompiledRule[],
     private readonly configPath: string,
@@ -60,6 +68,8 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     private readonly logger: RuntimeLogger,
     private readonly fetcher: Fetcher,
     private readonly tokenFetcher: Fetcher,
+    private readonly oauthTokenCache: OAuthTokenCache,
+    private readonly maxResponseBodyBytes: number,
   ) {}
 
   static create(
@@ -80,11 +90,10 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       options.configPath,
       options.env ?? Deno.env.toObject(),
       logger,
-      createAllowlistedFetch(
-        options.config.forwarding.map((rule) => rule.target),
-        nextFetch,
-      ),
       nextFetch,
+      nextFetch,
+      options.oauthTokenCache ?? createOAuthTokenCache(),
+      options.config.maxResponseBodyBytes,
     );
   }
 
@@ -122,6 +131,18 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       url: targetUrl.href,
       headers: { ...frame.request.headers },
     };
+    if (!forwarding.request?.forwardIncomingCredentials) {
+      for (
+        const name of [
+          "authorization",
+          "cookie",
+          "cookie2",
+          "proxy-authorization",
+        ]
+      ) {
+        deleteHeader(forwardedRequest.headers ?? {}, name);
+      }
+    }
     if (forwarding.request) {
       forwardedRequest = applyYamlRequestForwardingConfig(
         forwarding.request,
@@ -133,7 +154,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
           forwarding.request.auth,
           forwardedRequest,
           context,
-          forwarding.timeout ?? 30_000,
+          effectiveTimeout(forwarding.timeout, frame.request.timeoutSeconds),
         );
       }
     }
@@ -142,13 +163,20 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     const headers = buildHeaders(forwardedRequest.headers);
     removeHopByHopHeaders(headers);
     this.logger.info(
-      `Forwarding ${forwardedRequest.method} to ${finalUrl.origin}`,
+      `Forwarding request ${frame.requestId}: ${forwardedRequest.method} to ${finalUrl.origin}`,
     );
 
-    const timeout = forwarding.timeout ?? 30_000;
+    const timeout = effectiveTimeout(
+      forwarding.timeout,
+      frame.request.timeoutSeconds,
+    );
+    const fetcher = createAllowlistedFetch(
+      matchingRules.map((rule) => rule.target),
+      this.fetcher,
+    );
     let upstreamResponse: Response;
     try {
-      upstreamResponse = await this.fetcher(finalUrl, {
+      upstreamResponse = await fetcher(finalUrl, {
         method: forwardedRequest.method,
         headers,
         body: forwardedRequest.method === "GET" ||
@@ -178,7 +206,10 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     let response: CloudConnectorHttpResponse = {
       statusCode: upstreamResponse.status,
       headers: headersToRecord(upstreamResponse.headers),
-      body: (await upstreamResponse.text()) || null,
+      body: await readBoundedText(
+        upstreamResponse,
+        this.maxResponseBodyBytes,
+      ),
     };
     if (forwarding.response) {
       response = applyYamlResponseForwardingConfig(
@@ -227,10 +258,37 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     const scope = auth.scope
       ? requiredInterpolated(auth.scope, context, "scope")
       : undefined;
-    const cacheKey = JSON.stringify([issuer, clientId, scope]);
-    const cached = this.oauthTokens.get(cacheKey);
+    const cacheKey = JSON.stringify([issuer, clientId, clientSecret, scope]);
+    const cached = this.oauthTokenCache.tokens.get(cacheKey);
     if (cached && cached.expiresAt > Date.now() + 5_000) return cached.token;
 
+    const inFlight = this.oauthTokenCache.inFlight.get(cacheKey);
+    if (inFlight) return await inFlight;
+
+    const request = this.fetchOAuthToken(
+      issuer,
+      clientId,
+      clientSecret,
+      scope,
+      timeout,
+      cacheKey,
+    );
+    this.oauthTokenCache.inFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      this.oauthTokenCache.inFlight.delete(cacheKey);
+    }
+  }
+
+  private async fetchOAuthToken(
+    issuer: string,
+    clientId: string,
+    clientSecret: string,
+    scope: string | undefined,
+    timeout: number,
+    cacheKey: string,
+  ): Promise<string> {
     const body = new URLSearchParams({
       grant_type: "client_credentials",
       client_id: clientId,
@@ -273,7 +331,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
         Number.isFinite(payload.expires_in) && payload.expires_in > 0
       ? payload.expires_in
       : 300;
-    this.oauthTokens.set(cacheKey, {
+    this.oauthTokenCache.tokens.set(cacheKey, {
       token: payload.access_token,
       expiresAt: Date.now() + expiresIn * 1_000,
     });
@@ -305,6 +363,8 @@ export function mergeForwardingConfigs(
       result.response = mergeResponseConfig(result.response, config.response);
     }
   }
+  const lastAuth = configs.at(-1)?.request?.auth;
+  if (result.request !== undefined) result.request.auth = lastAuth;
   return result;
 }
 
@@ -362,7 +422,10 @@ function mergeRequestConfig(
     pathPrefix: next.pathPrefix !== undefined
       ? next.pathPrefix
       : current?.pathPrefix,
-    auth: next.auth !== undefined ? next.auth : current?.auth,
+    forwardIncomingCredentials: next.forwardIncomingCredentials !== undefined
+      ? next.forwardIncomingCredentials
+      : current?.forwardIncomingCredentials,
+    auth: next.auth,
   };
 }
 
@@ -380,7 +443,11 @@ function mergeHeaderConfigs(
   if (!current && !next) return undefined;
   const operations = new Map<
     string,
-    { kind: "add" | "remove" | "set"; name: string; value?: string }
+    {
+      kind: "add" | "remove" | "set";
+      name: string;
+      value?: string | string[];
+    }
   >();
   for (const config of [current, next]) {
     if (!config) continue;
@@ -391,7 +458,21 @@ function mergeHeaderConfigs(
       operations.set(name.toLowerCase(), { kind: "set", name, value });
     }
     for (const [name, value] of Object.entries(config.add ?? {})) {
-      operations.set(name.toLowerCase(), { kind: "add", name, value });
+      const key = name.toLowerCase();
+      const previous = operations.get(key);
+      const values = Array.isArray(value) ? value : [value];
+      operations.set(key, {
+        kind: "add",
+        name,
+        value: previous?.kind === "add"
+          ? [
+            ...(Array.isArray(previous.value)
+              ? previous.value
+              : [previous.value ?? ""]),
+            ...values,
+          ]
+          : values,
+      });
     }
   }
   const result: HeaderForwardingConfig = {};
@@ -399,7 +480,11 @@ function mergeHeaderConfigs(
     if (operation.kind === "remove") {
       (result.remove ??= []).push(operation.name);
     } else {
-      (result[operation.kind] ??= {})[operation.name] = operation.value ?? "";
+      if (operation.kind === "add") {
+        (result.add ??= {})[operation.name] = operation.value ?? "";
+      } else {
+        (result.set ??= {})[operation.name] = String(operation.value ?? "");
+      }
     }
   }
   return result;
@@ -422,7 +507,11 @@ function applyHeaderConfig(
       result[name] = result[existing];
       delete result[existing];
     }
-    result[name] = [...(result[name] ?? []), interpolate(value, context)];
+    const additions = Array.isArray(value) ? value : [value];
+    result[name] = [
+      ...(result[name] ?? []),
+      ...additions.map((entry) => interpolate(entry, context)),
+    ];
   }
   return result;
 }
@@ -440,16 +529,77 @@ function resolveExpression(
 ): string {
   const parts = expression.split(".");
   if (parts[0] === "env" && parts.length === 2) {
-    return context.env[parts[1]] ?? "";
+    return requiredEnvironmentValue(parts[1], context);
   }
   if (expression.startsWith("env:")) {
-    return context.env[expression.slice(4)] ?? "";
+    return requiredEnvironmentValue(expression.slice(4), context);
   }
   if (parts[0] === "context") {
     if (parts[1] === "requestId") return context.requestId;
     if (parts[1] === "startedAt") return context.startedAt;
   }
-  return "";
+  throw new RuntimeError(
+    "CONFIG_ERROR",
+    `Unsupported forwarding interpolation expression: ${expression}`,
+  );
+}
+
+function requiredEnvironmentValue(
+  name: string,
+  context: YamlValueContext,
+): string {
+  if (!(name in context.env)) {
+    throw new RuntimeError(
+      "CONFIG_ERROR",
+      `Environment variable ${name} referenced by forwarding configuration is not set`,
+    );
+  }
+  return context.env[name];
+}
+
+export function effectiveTimeout(
+  configuredTimeout: number | undefined,
+  requestedTimeoutSeconds: number | undefined,
+): number {
+  const configured = configuredTimeout ?? 30_000;
+  return requestedTimeoutSeconds === undefined
+    ? configured
+    : Math.min(configured, requestedTimeoutSeconds * 1_000);
+}
+
+async function readBoundedText(
+  response: Response,
+  maximumBytes: number,
+): Promise<string | null> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    await response.body?.cancel();
+    throw new RuntimeError(
+      "RESPONSE_TOO_LARGE",
+      `Target response exceeds the ${maximumBytes}-byte limit`,
+    );
+  }
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let body = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytesRead += value.byteLength;
+    if (bytesRead > maximumBytes) {
+      await reader.cancel();
+      throw new RuntimeError(
+        "RESPONSE_TOO_LARGE",
+        `Target response exceeds the ${maximumBytes}-byte limit`,
+      );
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+  body += decoder.decode();
+  return body || null;
 }
 
 function parseRequestedUrl(value: string, configPath: string): URL {

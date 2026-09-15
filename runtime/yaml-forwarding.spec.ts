@@ -1,4 +1,8 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { fromFileUrl } from "@std/path";
+import { parse as parseYaml } from "@std/yaml";
+import Ajv2020Module from "ajv/2020";
+import addFormatsModule from "ajv-formats";
 import {
   combineConfig,
   type ConnectorConfig,
@@ -12,7 +16,9 @@ import { RuntimeError } from "./runtime-error.ts";
 import {
   applyYamlRequestForwardingConfig,
   applyYamlResponseForwardingConfig,
+  createOAuthTokenCache,
   createYamlForwardingExecutor,
+  effectiveTimeout,
   interpolate,
   mergeForwardingConfigs,
   type YamlRequestForwardingConfig,
@@ -52,7 +58,7 @@ function configFor(forwardingYaml: string): ConnectorConfig {
 Deno.test("YamlForwardingExecutor matches the complete URL and merges ordered rules", async () => {
   const calls: Request[] = [];
   const config = configFor(`
-- target: ^https://internal[.]example/
+- target: ^https://internal[.]example/.*$
   methods: []
   timeout: 5000
   request:
@@ -64,7 +70,7 @@ Deno.test("YamlForwardingExecutor matches the complete URL and merges ordered ru
   response:
     headers:
       remove: [server]
-- target: ^https://internal[.]example/orders
+- target: ^https://internal[.]example/orders(?:[/?].*)?$
   methods: [POST]
   request:
     headers:
@@ -124,7 +130,9 @@ Deno.test("YamlForwardingExecutor matches the complete URL and merges ordered ru
 
 Deno.test("YamlForwardingExecutor denies unmatched URLs and explicit empty methods", async () => {
   const executor = await createYamlForwardingExecutor({
-    config: configFor("- target: ^https://internal[.]example/\n  methods: []"),
+    config: configFor(
+      "- target: ^https://internal[.]example/.*$\n  methods: []",
+    ),
     configPath: "/config/cloud-connector.yml",
     logger: silentLogger,
   });
@@ -154,7 +162,7 @@ Deno.test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials t
   const calls: Request[] = [];
   const executor = await createYamlForwardingExecutor({
     config: configFor(`
-- target: ^https://internal[.]example/
+- target: ^https://internal[.]example/.*$
   request:
     auth:
       type: oauth2
@@ -193,6 +201,215 @@ Deno.test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials t
   );
 });
 
+Deno.test("YamlForwardingExecutor deduplicates OAuth2 fetches and shares the cache across reloads", async () => {
+  let tokenCalls = 0;
+  let releaseToken!: () => void;
+  const tokenGate = new Promise<void>((resolve) => releaseToken = resolve);
+  const cache = createOAuthTokenCache();
+  const config = configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: secret
+`);
+  const nextFetch = (async (input) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url === "https://auth.example/token") {
+      tokenCalls += 1;
+      await tokenGate;
+      return Response.json({ access_token: "shared-token", expires_in: 60 });
+    }
+    return new Response("ok");
+  }) as Fetcher;
+  const first = await createYamlForwardingExecutor({
+    config,
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch,
+    oauthTokenCache: cache,
+  });
+  const second = await createYamlForwardingExecutor({
+    config,
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch,
+    oauthTokenCache: cache,
+  });
+  const frame = {
+    type: "request" as const,
+    requestId: "request-1",
+    request: { method: "GET" as const, url: "https://internal.example/items" },
+  };
+  const requests = [first.execute(frame), first.execute(frame)];
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(tokenCalls, 1);
+  releaseToken();
+  await Promise.all(requests);
+  await second.execute(frame);
+  assertEquals(tokenCalls, 1);
+});
+
+Deno.test("YamlForwardingExecutor supports Basic auth and reports OAuth2 failures", async () => {
+  let authorization: string | null = null;
+  const basic = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: basic
+      username: "{{ env.USERNAME }}"
+      password: "{{ env.PASSWORD }}"
+`),
+    configPath: "test.yml",
+    env: { USERNAME: "api-user", PASSWORD: "päss" },
+    logger: silentLogger,
+    nextFetch: ((input) => {
+      authorization = (input as Request).headers.get("authorization");
+      return Promise.resolve(new Response("ok"));
+    }) as Fetcher,
+  });
+  await basic.execute({
+    type: "request",
+    requestId: "basic-1",
+    request: { method: "GET", url: "https://internal.example/items" },
+  });
+  assertEquals(authorization, "Basic YXBpLXVzZXI6cMOkc3M=");
+
+  for (const failure of ["throw", "status", "missing-token"] as const) {
+    const executor = await createYamlForwardingExecutor({
+      config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: secret
+`),
+      configPath: "test.yml",
+      logger: silentLogger,
+      nextFetch: (() => {
+        if (failure === "throw") return Promise.reject(new Error("offline"));
+        if (failure === "status") {
+          return Promise.resolve(new Response(null, { status: 503 }));
+        }
+        return Promise.resolve(Response.json({}));
+      }) as Fetcher,
+    });
+    const error = await assertRejects(
+      () =>
+        executor.execute({
+          type: "request",
+          requestId: failure,
+          request: { method: "GET", url: "https://internal.example/items" },
+        }),
+      RuntimeError,
+    );
+    assertEquals(error.code, "TARGET_REQUEST_ERROR");
+  }
+});
+
+Deno.test("YamlForwardingExecutor strips inbound credentials unless explicitly enabled", async () => {
+  for (const forwardIncomingCredentials of [false, true]) {
+    let request!: Request;
+    const option = forwardIncomingCredentials
+      ? "\n  request:\n    forwardIncomingCredentials: true"
+      : "";
+    const executor = await createYamlForwardingExecutor({
+      config: configFor(`- target: ^https://internal[.]example/.*$${option}`),
+      configPath: "test.yml",
+      logger: silentLogger,
+      nextFetch: ((input) => {
+        request = input as Request;
+        return Promise.resolve(new Response("ok"));
+      }) as Fetcher,
+    });
+    await executor.execute({
+      type: "request",
+      requestId: "credentials",
+      request: {
+        method: "GET",
+        url: "https://internal.example/items",
+        headers: {
+          authorization: ["Bearer caller"],
+          cookie: ["session=secret"],
+          "proxy-authorization": ["Basic secret"],
+        },
+      },
+    });
+    assertEquals(
+      request.headers.get("authorization"),
+      forwardIncomingCredentials ? "Bearer caller" : null,
+    );
+    assertEquals(
+      request.headers.get("cookie"),
+      forwardIncomingCredentials ? "session=secret" : null,
+    );
+  }
+});
+
+Deno.test("YamlForwardingExecutor scopes redirect authorization to initially matched rules", async () => {
+  const calls: string[] = [];
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://one[.]example/.*$
+- target: ^https://two[.]example/.*$
+`),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) => {
+      const request = input as Request;
+      calls.push(request.url);
+      return Promise.resolve(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://two.example/secret" },
+        }),
+      );
+    }) as Fetcher,
+  });
+  const error = await assertRejects(
+    () =>
+      executor.execute({
+        type: "request",
+        requestId: "redirect",
+        request: { method: "GET", url: "https://one.example/start" },
+      }),
+    RuntimeError,
+  );
+  assertEquals(error.code, "OUTBOUND_URL_NOT_ALLOWED");
+  assertEquals(calls, ["https://one.example/start"]);
+});
+
+Deno.test("YamlForwardingExecutor caps response bodies and honors protocol timeouts", async () => {
+  assertEquals(effectiveTimeout(undefined, undefined), 30_000);
+  assertEquals(effectiveTimeout(20_000, 5), 5_000);
+  assertEquals(effectiveTimeout(2_000, 5), 2_000);
+
+  const executor = await createYamlForwardingExecutor({
+    config: {
+      ...configFor("- target: ^https://internal[.]example/.*$"),
+      maxResponseBodyBytes: 4,
+    },
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: (() => Promise.resolve(new Response("12345"))) as Fetcher,
+  });
+  const error = await assertRejects(
+    () =>
+      executor.execute({
+        type: "request",
+        requestId: "large",
+        request: { method: "GET", url: "https://internal.example/items" },
+      }),
+    RuntimeError,
+  );
+  assertEquals(error.code, "RESPONSE_TOO_LARGE");
+});
+
 Deno.test("mergeForwardingConfigs applies later explicit values and header entries", () => {
   assertEquals(
     mergeForwardingConfigs([
@@ -200,12 +417,24 @@ Deno.test("mergeForwardingConfigs applies later explicit values and header entri
         target: "first",
         methods: ["GET"],
         timeout: 1000,
-        request: { headers: { set: { "x-one": "1", "x-shared": "old" } } },
+        request: {
+          headers: {
+            set: { "x-one": "1", "x-shared": "old" },
+            add: { "x-add": "one" },
+          },
+          auth: { type: "basic", username: "user", password: "secret" },
+        },
       },
       {
         target: "second",
         methods: [],
-        request: { headers: { set: { "X-Shared": "new" }, remove: ["x-one"] } },
+        request: {
+          headers: {
+            set: { "X-Shared": "new" },
+            add: { "X-Add": "two" },
+            remove: ["x-one"],
+          },
+        },
       },
     ]),
     {
@@ -213,8 +442,13 @@ Deno.test("mergeForwardingConfigs applies later explicit values and header entri
       methods: [],
       timeout: 1000,
       request: {
-        headers: { remove: ["x-one"], set: { "X-Shared": "new" } },
+        headers: {
+          remove: ["x-one"],
+          set: { "X-Shared": "new" },
+          add: { "X-Add": ["one", "two"] },
+        },
         pathPrefix: undefined,
+        forwardIncomingCredentials: undefined,
         auth: undefined,
       },
     },
@@ -222,18 +456,39 @@ Deno.test("mergeForwardingConfigs applies later explicit values and header entri
 });
 
 Deno.test("maintained templates contain valid complete connector YAML", async () => {
+  const schemaPath = fromFileUrl(
+    new URL(
+      "../schemas/cloud-connector.schema.json",
+      import.meta.url,
+    ),
+  );
+  const schema = JSON.parse(await Deno.readTextFile(schemaPath));
+  const Ajv2020 = Ajv2020Module.default;
+  const addFormats = addFormatsModule.default;
+  const validateSchema = addFormats(new Ajv2020({ strict: false })).compile(
+    schema,
+  );
   for (
     const path of [
-      new URL(
-        "../templates/starter/config/cloud-connector.yml",
-        import.meta.url,
-      ).pathname,
-      new URL(
-        "../templates/examples/ticketing-yaml/config/cloud-connector.yml",
-        import.meta.url,
-      ).pathname,
+      fromFileUrl(
+        new URL(
+          "../templates/starter/config/cloud-connector.yml",
+          import.meta.url,
+        ),
+      ),
+      fromFileUrl(
+        new URL(
+          "../templates/examples/ticketing-yaml/config/cloud-connector.yml",
+          import.meta.url,
+        ),
+      ),
     ]
   ) {
+    const yaml = await Deno.readTextFile(path);
+    assert(
+      validateSchema(parseYaml(yaml)),
+      `Schema rejected ${path}: ${JSON.stringify(validateSchema.errors)}`,
+    );
     const config = combineConfig(environment, await loadVolumeConfig(path));
     await createYamlForwardingExecutor({
       config,
@@ -251,8 +506,16 @@ Deno.test("interpolate exposes only documented declarative values", () => {
     ),
     "Bearer secret-token / test-request-id",
   );
-  assertEquals(interpolate("{{ env.MISSING }}", baseContext), "");
-  assertEquals(interpolate("{{ request.url }}", baseContext), "");
+  assertThrows(
+    () => interpolate("{{ env.MISSING }}", baseContext),
+    RuntimeError,
+    "Environment variable MISSING",
+  );
+  assertThrows(
+    () => interpolate("{{ request.url }}", baseContext),
+    RuntimeError,
+    "Unsupported forwarding interpolation expression",
+  );
 });
 
 Deno.test("YAML request and response transformations remain declarative", () => {
@@ -305,10 +568,12 @@ Deno.test("YAML validates rules, authentication, and path prefixes", () => {
   for (
     const yaml of [
       "- target: '('",
-      "- target: https://internal.example\n  request:\n    auth:\n      type: bearer",
-      "- target: https://internal.example\n  request:\n    auth:\n      type: oauth2\n      issuer: relative\n      clientId: id\n      clientSecret: secret",
-      "- target: https://internal.example\n  request:\n    pathPrefix: //unsafe",
-      "- target: https://internal.example\n  response:\n    body:\n      set: changed",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  request:\n    auth:\n      type: bearer",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  request:\n    auth:\n      type: basic\n      username: user",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  request:\n    auth:\n      type: basic\n      username: user\n      password: secret\n      extra: invalid",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  request:\n    auth:\n      type: oauth2\n      issuer: relative\n      clientId: id\n      clientSecret: secret",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  request:\n    pathPrefix: //unsafe",
+      "- target: ^https://internal[.]example(?:/.*)?$\n  response:\n    body:\n      set: changed",
     ]
   ) assertThrows(() => configFor(yaml), RuntimeError);
 });

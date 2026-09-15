@@ -16,7 +16,7 @@ const requiredEnvironment = {
 const minimalYaml = `
 connection: {}
 forwarding:
-  - target: ^https://internal[.]example(?:/|$)
+  - target: ^https://internal[.]example(?:/.*)?$
 `;
 
 Deno.test("loadEnvironmentConfig keeps only credentials and resilience tuning", () => {
@@ -34,6 +34,9 @@ Deno.test("loadEnvironmentConfig keeps only credentials and resilience tuning", 
     tokenFetchTimeoutMs: 10_000,
     reconnectJitterRatio: 0.5,
     livenessStaleMs: 120_000,
+    maxResponseBodyBytes: 10_485_760,
+    maxConcurrentRequests: 100,
+    drainTimeoutMs: 30_000,
   });
 });
 
@@ -87,6 +90,9 @@ Deno.test("loadEnvironmentConfig reads explicit resilience tuning", () => {
     CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS: "7",
     CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: "0.25",
     CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS: "200",
+    CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES: "2048",
+    CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS: "12",
+    CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "4",
   });
 
   assertEquals(config.connectTimeoutMs, 20_000);
@@ -97,6 +103,9 @@ Deno.test("loadEnvironmentConfig reads explicit resilience tuning", () => {
   assertEquals(config.tokenFetchTimeoutMs, 7_000);
   assertEquals(config.reconnectJitterRatio, 0.25);
   assertEquals(config.livenessStaleMs, 200_000);
+  assertEquals(config.maxResponseBodyBytes, 2_048);
+  assertEquals(config.maxConcurrentRequests, 12);
+  assertEquals(config.drainTimeoutMs, 4_000);
 });
 
 Deno.test("loadEnvironmentConfig rejects invalid resilience ratios and factors", () => {
@@ -130,7 +139,7 @@ connection:
 logging:
   level: debug
 forwarding:
-  - target: "^https://internal[.]example(?:/|$)"
+  - target: "^https://internal[.]example(?:/.*)?$"
     methods: [GET, POST]
     timeout: 5000
 `);
@@ -142,7 +151,7 @@ forwarding:
     },
     logging: { level: "debug" },
     forwarding: [{
-      target: "^https://internal[.]example(?:/|$)",
+      target: "^https://internal[.]example(?:/.*)?$",
       methods: ["GET", "POST"],
       timeout: 5000,
       request: undefined,
@@ -211,6 +220,26 @@ forwarding:
     RuntimeError,
     "is not a valid regular expression",
   );
+  assertThrows(
+    () =>
+      parseVolumeConfig(`
+connection: {}
+forwarding:
+  - target: https://internal[.]example
+`),
+    RuntimeError,
+    "must start with ^ and end with $",
+  );
+  assertThrows(
+    () =>
+      parseVolumeConfig(`
+connection: {}
+forwarding:
+  - target: ^https://internal[.]example(/.*)*(/api)$
+`),
+    RuntimeError,
+    "excessive backtracking",
+  );
 });
 
 Deno.test("combineConfig requires liveness to cover backoff and YAML heartbeat", () => {
@@ -223,12 +252,35 @@ Deno.test("combineConfig requires liveness to cover backoff and YAML heartbeat",
 connection:
   heartbeatIntervalSeconds: 20
 forwarding:
-  - target: https://internal.example
+  - target: ^https://internal[.]example(?:/.*)?$
 `);
 
   assertThrows(
     () => combineConfig(shortLiveness, longHeartbeat),
     Error,
     "must be greater than both",
+  );
+});
+
+Deno.test("combineConfig rejects a peer-silence window shorter than the cloud heartbeat", () => {
+  const fastHeartbeat = parseVolumeConfig(`
+connection:
+  heartbeatIntervalSeconds: 5
+forwarding:
+  - target: ^https://internal[.]example(?:/.*)?$
+`);
+  assertThrows(
+    () =>
+      combineConfig(loadEnvironmentConfig(requiredEnvironment), fastHeartbeat),
+    Error,
+    "30-second Serviceware Cloud heartbeat interval",
+  );
+  const watchdogDisabled = loadEnvironmentConfig({
+    ...requiredEnvironment,
+    CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0",
+  });
+  assertEquals(
+    combineConfig(watchdogDisabled, fastHeartbeat).heartbeatIntervalMs,
+    5_000,
   );
 });
