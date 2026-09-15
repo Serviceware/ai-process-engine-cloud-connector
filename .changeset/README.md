@@ -6,7 +6,7 @@ changeset.
 Create a release changeset interactively:
 
 ```bash
-npm run changeset
+deno task changeset
 ```
 
 Choose `patch`, `minor`, or `major` according to Semantic Versioning and write a
@@ -14,7 +14,7 @@ short, user-facing summary. If a pull request only changes tests, documentation,
 or internal tooling and must not produce a release, create an empty changeset:
 
 ```bash
-npm run changeset -- --empty
+deno task changeset --empty
 ```
 
 The release workflow consumes these files. Do not edit `package.json` versions,

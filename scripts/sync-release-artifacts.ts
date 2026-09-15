@@ -1,10 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
-
-const checkOnly = process.argv.includes("--check");
-const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+const checkOnly = Deno.args.includes("--check");
+const packageJson = JSON.parse(await Deno.readTextFile("package.json"));
 const version = packageJson.version;
 
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
+if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
   throw new Error(
     `package.json version must use MAJOR.MINOR.PATCH, got ${version}`,
   );
@@ -16,29 +14,10 @@ const composeFiles = [
 ];
 const imagePattern = /(ghcr\.io\/serviceware\/cloud-connector:)([^\s"']+)/g;
 const expectedImage = `ghcr.io/serviceware/cloud-connector:${version}`;
-const changedFiles = [];
-
-const lockfilePath = "package-lock.json";
-const lockfileText = await readFile(lockfilePath, "utf8");
-const lockfile = JSON.parse(lockfileText);
-if (
-  lockfile.name !== packageJson.name ||
-  lockfile.packages?.[""]?.name !== packageJson.name
-) {
-  throw new Error(`${lockfilePath} package name does not match package.json`);
-}
-if (lockfile.version !== version || lockfile.packages[""].version !== version) {
-  if (checkOnly) {
-    throw new Error(`${lockfilePath} must use version ${version}`);
-  }
-  lockfile.version = version;
-  lockfile.packages[""].version = version;
-  await writeFile(lockfilePath, `${JSON.stringify(lockfile, null, 2)}\n`);
-  changedFiles.push(lockfilePath);
-}
+const changedFiles: string[] = [];
 
 for (const path of composeFiles) {
-  const original = await readFile(path, "utf8");
+  const original = await Deno.readTextFile(path);
   const matches = [...original.matchAll(imagePattern)];
   if (matches.length !== 1) {
     throw new Error(`${path} must contain exactly one Cloud Connector image`);
@@ -49,13 +28,13 @@ for (const path of composeFiles) {
     if (checkOnly) {
       throw new Error(`${path} must reference ${expectedImage}`);
     }
-    await writeFile(path, updated);
+    await Deno.writeTextFile(path, updated);
     changedFiles.push(path);
   }
 }
 
 const changelogPath = "CHANGELOG.md";
-const changelog = await readFile(changelogPath, "utf8");
+const changelog = await Deno.readTextFile(changelogPath);
 const datedHeading = new RegExp(`^## ${version} - \\d{4}-\\d{2}-\\d{2}$`, "m");
 
 if (!datedHeading.test(changelog)) {
@@ -73,7 +52,7 @@ if (!datedHeading.test(changelog)) {
     undatedHeading,
     `## ${version} - ${releaseDate}`,
   );
-  await writeFile(changelogPath, updated);
+  await Deno.writeTextFile(changelogPath, updated);
   changedFiles.push(changelogPath);
 }
 

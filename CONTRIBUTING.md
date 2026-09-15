@@ -12,19 +12,18 @@ Thank you for improving the Cloud Connector.
 5. Run the repository checks.
 6. Open a pull request with a short explanation of the change and its impact.
 
-Use the Deno and Node.js versions from `.dvmrc` and `.node-version`:
+Use the Deno version from `.dvmrc`:
 
 ```bash
-npm ci
 deno task ci
 ```
 
-Create a release Changeset with `npm run changeset`. Select `patch`, `minor`, or
-`major` and write a concise, user-facing summary. For documentation, tests, or
-internal tooling that should not change the released version, use:
+Create a release Changeset with `deno task changeset`. Select `patch`, `minor`,
+or `major` and write a concise, user-facing summary. For documentation, tests,
+or internal tooling that should not change the released version, use:
 
 ```bash
-npm run changeset -- --empty
+deno task changeset --empty
 ```
 
 Please do not add credentials, generated build output, or unrelated

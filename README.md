@@ -79,11 +79,9 @@ contract is available in
 
 ## Development
 
-Use the Deno and Node.js versions from `.dvmrc` and `.node-version`. Install the
-release tooling, then run all checks:
+Use the Deno version from `.dvmrc`, then run all checks:
 
 ```bash
-npm ci
 deno task ci
 ```
 

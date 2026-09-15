@@ -13,6 +13,7 @@ container image. It also requires every non-release pull request to contain a
 valid Changeset; use an empty Changeset for work that should not create a new
 release. Keep pull requests green before merging.
 
-After changes reach `main`, the Changesets workflow creates or updates one
-release pull request. Merging that pull request creates the semantic version tag
-and GitHub Release, then publishes the matching container image.
+An authorized maintainer starts the Changesets workflow manually when a release
+is wanted. It creates or updates one release pull request. After that pull
+request is merged, another manual run creates the semantic version tag and
+GitHub Release, then publishes the matching container image.
