@@ -1,0 +1,121 @@
+name: Deno release management
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-management-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify main
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release:
+    name: Create release pull request or tag
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      published: ${{ steps.result.outputs.published }}
+      version: ${{ steps.result.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version-file: .dvmrc
+          cache: true
+
+      - name: Require the main branch
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          [[ "${RELEASE_REF}" == "refs/heads/main" ]]
+
+      - name: Prepare version and release artifacts
+        run: deno task release:version
+
+      - name: Create release pull request or publish current version
+        id: result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            release_branch="changeset-release/main"
+            git fetch origin "${release_branch}:refs/remotes/origin/${release_branch}" || true
+            git switch --create "${release_branch}"
+            git add --all
+            git commit --message "chore: release Cloud Connector"
+            git push --force-with-lease origin "HEAD:refs/heads/${release_branch}"
+
+            pr_url="$(gh pr list \
+              --base main \
+              --head "${release_branch}" \
+              --state open \
+              --json url \
+              --jq '.[0].url // empty')"
+            if [[ -z "${pr_url}" ]]; then
+              gh pr create \
+                --base main \
+                --head "${release_branch}" \
+                --title "chore: release Cloud Connector" \
+                --body "Apply pending Deno Changesets and prepare the next Cloud Connector release."
+            else
+              gh pr edit "${pr_url}" \
+                --title "chore: release Cloud Connector" \
+                --body "Apply pending Deno Changesets and prepare the next Cloud Connector release."
+            fi
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          version="$(deno eval 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')"
+          tag="v${version}"
+          if git rev-parse --verify --quiet "refs/tags/${tag}"; then
+            tagged_commit="$(git rev-parse "${tag}^{commit}")"
+            if [[ "${tagged_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "${tag} already points to ${tagged_commit}, not ${GITHUB_SHA}." >&2
+              exit 1
+            fi
+          else
+            git tag --annotate "${tag}" --message "Cloud Connector ${version}"
+            git push origin "refs/tags/${tag}"
+          fi
+
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" \
+              --verify-tag \
+              --title "Cloud Connector ${version}" \
+              --generate-notes
+          fi
+          echo "published=true" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  publish-container:
+    name: Publish released container
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
