@@ -1,3 +1,6 @@
+# Local dependency caches
+node_modules/
+
 # Deno
 .deno/
 
