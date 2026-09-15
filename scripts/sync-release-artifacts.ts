@@ -1,10 +1,10 @@
 const checkOnly = Deno.args.includes("--check");
-const packageJson = JSON.parse(await Deno.readTextFile("package.json"));
-const version = packageJson.version;
+const denoJson = JSON.parse(await Deno.readTextFile("deno.json"));
+const version = denoJson.version;
 
 if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
   throw new Error(
-    `package.json version must use MAJOR.MINOR.PATCH, got ${version}`,
+    `deno.json version must use MAJOR.MINOR.PATCH, got ${version}`,
   );
 }
 

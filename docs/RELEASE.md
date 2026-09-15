@@ -1,8 +1,9 @@
 # Release
 
-Changesets manages Cloud Connector versions, changelog entries, Git tags, and
-GitHub Releases. The container continues to be published from an immutable
-semantic version tag.
+Deno scripts manage Cloud Connector Changesets, versions, changelog entries, Git
+tags, and GitHub Releases. The container is published from an immutable semantic
+version tag. Deno is the only required JavaScript runtime, and `deno.json` is
+the only package and task manifest.
 
 ## Add release intent
 
@@ -28,13 +29,13 @@ docker compose -f templates/examples/ticketing-yaml/docker-compose.yml config
 
 ## Publish
 
-An authorized maintainer starts the **Changesets release management** workflow
+An authorized maintainer starts the **Deno release management** workflow
 manually. It creates or updates a release pull request that combines all pending
-entries, updates `package.json` and `CHANGELOG.md`, and synchronizes the image
+entries, updates `deno.json` and `CHANGELOG.md`, and synchronizes the image
 version in both maintained Compose examples.
 
 After merging the release pull request, start the workflow manually again. This
-creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
+creates `vX.Y.Z` and a GitHub Release. The pushed tag invokes the verified
 container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux
 AMD64 and ARM64. It also updates the moving `X.Y` and `X` tags, attaches SBOM
 and provenance data, checks the published manifest, and proves the package is

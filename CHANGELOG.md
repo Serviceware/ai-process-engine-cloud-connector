@@ -1,27 +1,27 @@
 # Changelog
 
-## 3.0.0 - 2026-08-31
+All notable changes to the Cloud Connector are documented in this file. Releases
+follow [Semantic Versioning](https://semver.org/).
 
-### Breaking changes
+## 1.0.0 - 2026-08-31
 
-- Workload HTTP access is now denied by default. Deployments must configure
-  `OUTBOUND_URL_ALLOWLIST` as a JSON array of regular expressions before the
-  Cloud Connector can reach internal or external workload URLs.
-- An absent variable and `OUTBOUND_URL_ALLOWLIST=[]` both deny every workload
-  URL. `OUTBOUND_URL_ALLOWLIST=[".*"]` is the explicit, unrestricted opt-out and
-  should only be used after a security review.
-- Customer TypeScript, JavaScript, and other executable customization is no
-  longer supported. The SDK, dynamic module loader, file-based routes, and
-  script examples were removed.
-- Every deployment must provide one YAML forwarding file through
-  `CLOUD_CONNECTOR_FORWARDING_CONFIG`. Missing or invalid YAML fails startup.
-- The transparent absolute-URL proxy fallback was removed. An inbound request
-  cannot select a target origin.
+### Added
+
+- Added one complete, mounted `cloud-connector.yml` for connection, logging, and
+  ordered target-regex forwarding rules.
+- Hot reloads validated YAML changes without restarting the container or
+  application.
+- Keeps the last-known-good snapshot when a file update is unreadable or
+  invalid.
+- Reconnects only when socket-level YAML settings change; forwarding and log
+  settings switch in place.
+- Supports Basic, Bearer, and OAuth 2.0 client-credentials authentication for
+  forwarded requests, including environment-backed secrets and token caching.
 
 ### Security
 
-- Enforced the outbound URL allowlist for the YAML forwarding target and every
-  redirect destination.
+- Denies workload HTTP access unless a complete target URL matches at least one
+  forwarding rule.
 - Revalidated every HTTP redirect target before following it and limited
   redirect chains to 20 hops.
 - Removed authorization, proxy authorization, and cookie credentials when a
@@ -32,14 +32,11 @@
 
 ### Changed
 
-- Replaced function routing and hot reload with one startup-validated,
-  declarative `forwarding.yml` execution path.
-- Limited YAML to one target, method restrictions, timeout, headers, and one
-  static path prefix. Removed conditions, body/status manipulation, and
-  arbitrary URL rewrites from the configuration contract.
-- Documented default-deny configuration, safe regular-expression examples, and
-  the YAML-only deployment migration.
-- Pinned maintained container examples to `3.0.0` instead of `latest`.
+- Limited the connector to declarative YAML forwarding; executable customer
+  customization and the local inbound WebSocket endpoint are not supported.
+- Derives the Serviceware WebSocket URL from `CLOUD_CONNECTOR_HOST` and the
+  connection purpose, which defaults to `main`.
+- Pinned maintained container examples to `1.0.0` instead of `latest`.
 
 ### Fixed
 
