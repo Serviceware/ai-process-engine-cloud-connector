@@ -51,13 +51,21 @@ export type ConnectorRuntimeOptions = {
   /** Protocol executor that handles inbound request frames. */
   protocolExecutor: ProtocolExecutor;
   logger?: RuntimeLogger;
+  maximumConcurrentRequests?: number;
+};
+
+export type WebSocketAttachment = {
+  /** Stops accepting requests and waits up to the supplied timeout. */
+  drain: (timeoutMs: number) => Promise<boolean>;
 };
 
 export class ConnectorRuntime {
   private readonly logger: RuntimeLogger;
+  private readonly maximumConcurrentRequests: number;
 
   constructor(private readonly options: ConnectorRuntimeOptions) {
     this.logger = options.logger ?? createLogger();
+    this.maximumConcurrentRequests = options.maximumConcurrentRequests ?? 100;
   }
 
   async handleFrame(
@@ -80,14 +88,61 @@ export class ConnectorRuntime {
     await this.handleRequestFrame(frame, send);
   }
 
-  attachWebSocket(socket: WebSocket): void {
+  attachWebSocket(socket: WebSocket): WebSocketAttachment {
+    const inFlight = new Set<Promise<void>>();
+    let acceptingRequests = true;
+    const send = (frame: WritableFrame) => socket.send(serializeFrame(frame));
+
     socket.addEventListener("message", (event) => {
-      void this.handleSocketMessage(
-        event.data,
-        (frame) => socket.send(serializeFrame(frame)),
-      ).catch((error) => {
-        this.logger.error("Failed to process WebSocket message", error);
+      let frame: CloudConnectorMessageFrame;
+      try {
+        frame = parseMessageFrame(event.data);
+      } catch (error) {
+        this.logger.warn(toCloudConnectorError(error).message);
+        return;
+      }
+
+      if (isRequestFrame(frame) && !acceptingRequests) {
+        void Promise.resolve(send(createErrorFrame(frame.requestId, {
+          code: "CONNECTOR_DRAINING",
+          message: "Cloud Connector is draining before reconnect or shutdown",
+        }))).catch((error) => {
+          this.logger.error(
+            `Failed to reject draining request ${frame.requestId}`,
+            error,
+          );
+        });
+        return;
+      }
+      if (
+        isRequestFrame(frame) &&
+        inFlight.size >= this.maximumConcurrentRequests
+      ) {
+        void Promise.resolve(send(createErrorFrame(frame.requestId, {
+          code: "TOO_MANY_REQUESTS",
+          message: "Cloud Connector request concurrency limit reached",
+        }))).catch((error) => {
+          this.logger.error(
+            `Failed to reject excess request ${frame.requestId}`,
+            error,
+          );
+        });
+        return;
+      }
+
+      const task = this.handleFrame(frame, send).catch((error) => {
+        const requestId = isRequestFrame(frame)
+          ? ` for request ${frame.requestId}`
+          : "";
+        this.logger.error(
+          `Failed to process WebSocket message${requestId}`,
+          error,
+        );
       });
+      if (isRequestFrame(frame)) {
+        inFlight.add(task);
+        void task.finally(() => inFlight.delete(task));
+      }
     });
 
     socket.addEventListener("open", () => {
@@ -100,21 +155,21 @@ export class ConnectorRuntime {
         reason: e.reason,
       });
     });
-  }
 
-  private async handleSocketMessage(
-    data: unknown,
-    send: FrameSender,
-  ): Promise<void> {
-    let frame: CloudConnectorMessageFrame;
-    try {
-      frame = parseMessageFrame(data);
-    } catch (error) {
-      this.logger.warn(toCloudConnectorError(error).message);
-      return;
-    }
-
-    await this.handleFrame(frame, send);
+    return {
+      drain: async (timeoutMs) => {
+        acceptingRequests = false;
+        if (inFlight.size === 0) return true;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<false>((resolve) => {
+          timeoutId = setTimeout(() => resolve(false), timeoutMs);
+        });
+        const drained = Promise.allSettled([...inFlight]).then(() => true);
+        const result = await Promise.race([drained, timedOut]);
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        return result;
+      },
+    };
   }
 
   private async handleRequestFrame(
@@ -125,8 +180,12 @@ export class ConnectorRuntime {
       const response = await this.options.protocolExecutor.execute(frame);
       await send(createResponseFrame(frame.requestId, response));
     } catch (error) {
+      const connectorError = toCloudConnectorError(error);
+      this.logger.warn(
+        `Forwarding request ${frame.requestId} failed: ${connectorError.code}`,
+      );
       await send(
-        createErrorFrame(frame.requestId, toCloudConnectorError(error)),
+        createErrorFrame(frame.requestId, connectorError),
       );
     }
   }

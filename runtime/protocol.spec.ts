@@ -52,6 +52,19 @@ Deno.test("parseMessageFrame rejects malformed frames", () => {
     RuntimeError,
     "Unsupported frame type: unknown",
   );
+  assertThrows(
+    () => parseMessageFrame('{"type":"request"}'),
+    RuntimeError,
+    "requestId",
+  );
+  assertThrows(
+    () =>
+      parseMessageFrame(
+        '{"type":"request","requestId":"request-1","request":{}}',
+      ),
+    RuntimeError,
+    "request.method",
+  );
 });
 
 Deno.test("frame factories create serializable outbound frames", () => {

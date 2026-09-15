@@ -7,9 +7,6 @@ on:
         description: Released semantic version produced by Changesets
         required: true
         type: string
-  push:
-    tags:
-      - v*.*.*
 
 permissions:
   contents: read

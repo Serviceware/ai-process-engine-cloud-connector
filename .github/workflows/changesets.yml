@@ -88,16 +88,22 @@ jobs:
           version="$(deno eval 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')"
           tag="v${version}"
           if git rev-parse --verify --quiet "refs/tags/${tag}"; then
-            echo "${tag} is already released and there are no pending Changesets." >&2
-            exit 1
+            tagged_commit="$(git rev-parse "${tag}^{commit}")"
+            if [[ "${tagged_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "${tag} already points to ${tagged_commit}, not ${GITHUB_SHA}." >&2
+              exit 1
+            fi
+          else
+            git tag --annotate "${tag}" --message "Cloud Connector ${version}"
+            git push origin "refs/tags/${tag}"
           fi
 
-          git tag --annotate "${tag}" --message "Cloud Connector ${version}"
-          git push origin "refs/tags/${tag}"
-          gh release create "${tag}" \
-            --verify-tag \
-            --title "Cloud Connector ${version}" \
-            --generate-notes
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" \
+              --verify-tag \
+              --title "Cloud Connector ${version}" \
+              --generate-notes
+          fi
           echo "published=true" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 

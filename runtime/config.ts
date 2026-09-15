@@ -3,7 +3,7 @@ import { defaultLogLevel, isLogLevel, type LogLevel } from "./logger.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
 export type HeaderForwardingConfig = {
-  add?: Record<string, string>;
+  add?: Record<string, string | string[]>;
   remove?: string[];
   set?: Record<string, string>;
 };
@@ -12,6 +12,8 @@ export type RequestForwardingConfig = {
   headers?: HeaderForwardingConfig;
   /** Static path prefix applied before forwarding. */
   pathPrefix?: string;
+  /** Forward caller credential headers instead of stripping them. */
+  forwardIncomingCredentials?: boolean;
   /** Optional target authentication added by the connector. */
   auth?: AuthConfig;
 };
@@ -81,6 +83,9 @@ export type EnvironmentConfig = {
   tokenFetchTimeoutMs: number;
   reconnectJitterRatio: number;
   livenessStaleMs: number;
+  maxResponseBodyBytes: number;
+  maxConcurrentRequests: number;
+  drainTimeoutMs: number;
 };
 
 /** Complete validated snapshot used by the runtime. */
@@ -104,6 +109,10 @@ const defaultHeartbeatTimeoutFactor = 3;
 const defaultTokenFetchTimeoutSeconds = 10;
 const defaultReconnectJitterRatio = 0.5;
 const defaultLivenessStaleSeconds = 120;
+const defaultMaxResponseBodyBytes = 10 * 1024 * 1024;
+const defaultMaxConcurrentRequests = 100;
+const defaultDrainTimeoutSeconds = 30;
+const serverHeartbeatIntervalMs = 30_000;
 
 const supportedMethods = new Set([
   "GET",
@@ -172,6 +181,21 @@ export function loadEnvironmentConfig(
       defaultLivenessStaleSeconds,
       "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS",
     ) * 1000,
+    maxResponseBodyBytes: readInteger(
+      env.CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES,
+      defaultMaxResponseBodyBytes,
+      "CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES",
+    ),
+    maxConcurrentRequests: readInteger(
+      env.CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS,
+      defaultMaxConcurrentRequests,
+      "CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS",
+    ),
+    drainTimeoutMs: readInteger(
+      env.CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS,
+      defaultDrainTimeoutSeconds,
+      "CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS",
+    ) * 1000,
   };
 }
 
@@ -227,6 +251,7 @@ export function combineConfig(
     environment.livenessStaleMs,
     environment.reconnectMaxDelayMs,
     volume.connection.heartbeatIntervalMs,
+    environment.heartbeatTimeoutFactor,
   );
 
   return {
@@ -328,6 +353,16 @@ function validateAndNormalizeForwardingConfig(
       cause: error,
     });
   }
+  if (!target.startsWith("^") || !target.endsWith("$")) {
+    throw new Error(
+      `${path}.target must start with ^ and end with $ so it matches the complete URL`,
+    );
+  }
+  if (hasUnsafeNestedQuantifier(target)) {
+    throw new Error(
+      `${path}.target contains nested or ambiguous repetition that may cause excessive backtracking`,
+    );
+  }
 
   if (config.methods !== undefined) {
     if (
@@ -372,7 +407,7 @@ function validateRequestConfig(value: unknown, path: string): void {
   const config = requireRecord(value, path);
   rejectUnknown(
     config,
-    ["headers", "pathPrefix", "auth"],
+    ["headers", "pathPrefix", "forwardIncomingCredentials", "auth"],
     path,
   );
   if (config.headers !== undefined) {
@@ -392,6 +427,12 @@ function validateRequestConfig(value: unknown, path: string): void {
         `${path}.pathPrefix must be an absolute path without query or fragment`,
       );
     }
+  }
+  if (
+    config.forwardIncomingCredentials !== undefined &&
+    typeof config.forwardIncomingCredentials !== "boolean"
+  ) {
+    throw new Error(`${path}.forwardIncomingCredentials must be a boolean`);
   }
   if (config.auth !== undefined) {
     validateAuthConfig(config.auth, `${path}.auth`);
@@ -515,6 +556,7 @@ function validateLivenessWindow(
   livenessStaleMs: number,
   reconnectMaxDelayMs: number,
   heartbeatIntervalMs: number,
+  heartbeatTimeoutFactor: number,
 ): void {
   const minimum = Math.max(reconnectMaxDelayMs, heartbeatIntervalMs);
   if (livenessStaleMs <= minimum) {
@@ -524,6 +566,97 @@ function validateLivenessWindow(
         "connection.heartbeatIntervalSeconds value",
     );
   }
+  const peerSilenceWindowMs = heartbeatIntervalMs * heartbeatTimeoutFactor;
+  if (
+    heartbeatTimeoutFactor > 0 &&
+    peerSilenceWindowMs <= serverHeartbeatIntervalMs
+  ) {
+    throw new Error(
+      "The YAML connection.heartbeatIntervalSeconds multiplied by " +
+        "CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR must be greater than the " +
+        "30-second Serviceware Cloud heartbeat interval",
+    );
+  }
+}
+
+/** Conservative guard against common exponential-backtracking expressions. */
+function hasUnsafeNestedQuantifier(pattern: string): boolean {
+  type GroupState = { hasQuantifier: boolean; hasAlternation: boolean };
+  const groups: GroupState[] = [{
+    hasQuantifier: false,
+    hasAlternation: false,
+  }];
+  let escaped = false;
+  let inCharacterClass = false;
+  let previousGroup: GroupState | undefined;
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (escaped) {
+      escaped = false;
+      previousGroup = undefined;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      previousGroup = undefined;
+      continue;
+    }
+    if (inCharacterClass) {
+      if (char === "]") inCharacterClass = false;
+      continue;
+    }
+    if (char === "[") {
+      inCharacterClass = true;
+      previousGroup = undefined;
+      continue;
+    }
+    if (char === "(") {
+      groups.push({ hasQuantifier: false, hasAlternation: false });
+      previousGroup = undefined;
+      continue;
+    }
+    if (char === ")" && groups.length > 1) {
+      const closed = groups.pop()!;
+      const parent = groups.at(-1)!;
+      parent.hasQuantifier ||= closed.hasQuantifier;
+      parent.hasAlternation ||= closed.hasAlternation;
+      previousGroup = closed;
+      continue;
+    }
+    if (char === "|") {
+      groups.at(-1)!.hasAlternation = true;
+      previousGroup = undefined;
+      continue;
+    }
+
+    let isQuantifier = char === "*" || char === "+" || char === "?";
+    let isUnbounded = char === "*" || char === "+";
+    if (char === "{") {
+      const end = pattern.indexOf("}", index + 1);
+      if (end !== -1) {
+        const range = pattern.slice(index + 1, end);
+        if (/^\d+(?:,\d*)?$/.test(range)) {
+          isQuantifier = true;
+          isUnbounded = range.endsWith(",");
+          index = end;
+        }
+      }
+    }
+    if (isQuantifier) {
+      if (
+        isUnbounded && previousGroup &&
+        (previousGroup.hasQuantifier || previousGroup.hasAlternation)
+      ) {
+        return true;
+      }
+      groups.at(-1)!.hasQuantifier = true;
+      previousGroup = undefined;
+      continue;
+    }
+    if (char !== "^" && char !== "$") previousGroup = undefined;
+  }
+  return false;
 }
 
 function requireAbsoluteUrl(

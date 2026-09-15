@@ -6,6 +6,7 @@ import {
   loadVolumeConfig,
 } from "./config.ts";
 import type { RuntimeLogger } from "./logger.ts";
+import type { RuntimeStatus } from "./runtime-status.ts";
 
 export type ActivateConfig = (
   config: ConnectorConfig,
@@ -22,6 +23,7 @@ export class ConfigReloader {
     private readonly environment: EnvironmentConfig,
     private readonly activate: ActivateConfig,
     private readonly logger: RuntimeLogger,
+    private readonly status?: RuntimeStatus,
   ) {}
 
   async reload(): Promise<boolean> {
@@ -29,9 +31,17 @@ export class ConfigReloader {
       const volume = await loadVolumeConfig(this.path);
       const config = combineConfig(this.environment, volume);
       await this.activate(config);
+      if (this.status) {
+        this.status.lastReloadAt = Date.now();
+        this.status.lastReloadSucceeded = true;
+      }
       this.logger.info(`Hot-reloaded Cloud Connector config from ${this.path}`);
       return true;
     } catch (error) {
+      if (this.status) {
+        this.status.lastReloadAt = Date.now();
+        this.status.lastReloadSucceeded = false;
+      }
       this.logger.error(
         `Rejected Cloud Connector config update from ${this.path}; keeping the last-known-good configuration`,
         error,

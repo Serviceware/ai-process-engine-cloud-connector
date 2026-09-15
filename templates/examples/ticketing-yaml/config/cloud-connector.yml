@@ -9,7 +9,7 @@ logging:
 
 # Ordered rules match complete target URLs; requests without a match are denied.
 forwarding:
-  - target: "^http://ticketing-api:3000(?:/|$)"
+  - target: "^http://ticketing-api:3000(?:/.*)?$"
     methods: [GET, POST, PUT, PATCH, DELETE]
     timeout: 30000
     request:

@@ -57,6 +57,13 @@ export async function generateAccessToken(
       "Authentication endpoint not found in well-known configuration.",
     );
   }
+  const configuredOrigin = new URL(options.host).origin;
+  const issuerOrigin = new URL(authEndpoint).origin;
+  if (issuerOrigin !== configuredOrigin) {
+    throw new Error(
+      `Authentication issuer origin ${issuerOrigin} does not match Cloud Connector host origin ${configuredOrigin}.`,
+    );
+  }
 
   const tokenResponse = await fetcher(
     joinUrl(authEndpoint, "protocol/openid-connect/token"),

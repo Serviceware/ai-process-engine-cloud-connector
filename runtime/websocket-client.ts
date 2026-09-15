@@ -4,6 +4,7 @@ import {
 } from "./access-token.ts";
 import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
+import type { WebSocketAttachment } from "./connector.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
@@ -183,30 +184,58 @@ async function openWebSocket(
         Authorization: `Bearer ${accessToken}`,
       },
     });
+    const attachment: WebSocketAttachment = runtime.attachWebSocket(socket);
 
     let opened = false;
     let openedAt = 0;
     let settled = false;
     let heartbeatId: ReturnType<typeof setInterval> | undefined;
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    let forceSettleTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeRequested = false;
 
-    const closeSocket = () => {
-      try {
-        socket.close();
-      } catch {
-        // already closing/closed
-      }
-    };
-    const abort = () => closeSocket();
-
-    function cleanup(): void {
+    const clearHeartbeat = () => {
       if (heartbeatId !== undefined) {
         clearInterval(heartbeatId);
         heartbeatId = undefined;
       }
+    };
+    const closeSocket = () => {
+      if (closeRequested) return;
+      closeRequested = true;
+      status.connectionState = "disconnected";
+      clearHeartbeat();
+      void attachment.drain(config.drainTimeoutMs).then((drained) => {
+        if (!drained) {
+          logger.warn(
+            `Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`,
+          );
+        }
+        try {
+          socket.close();
+        } catch {
+          // already closing/closed
+        }
+        if (!settled) {
+          forceSettleTimer = setTimeout(() => {
+            const stableOpen = opened &&
+              (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
+            settle({ stableOpen });
+          }, 1_000);
+        }
+      }).catch(fail);
+    };
+    const abort = () => closeSocket();
+
+    function cleanup(): void {
+      clearHeartbeat();
       if (connectTimer !== undefined) {
         clearTimeout(connectTimer);
         connectTimer = undefined;
+      }
+      if (forceSettleTimer !== undefined) {
+        clearTimeout(forceSettleTimer);
+        forceSettleTimer = undefined;
       }
       signal.removeEventListener("abort", abort);
     }
@@ -229,7 +258,11 @@ async function openWebSocket(
 
     connectTimer = setTimeout(() => {
       if (!opened) {
-        closeSocket();
+        try {
+          socket.close();
+        } catch {
+          // already closing/closed
+        }
         fail(
           new Error(
             `Cloud Connector WebSocket did not open within ${config.connectTimeoutMs}ms`,
@@ -237,9 +270,6 @@ async function openWebSocket(
         );
       }
     }, config.connectTimeoutMs);
-
-    // Frame processing (request/response/heartbeat handling, logging).
-    runtime.attachWebSocket(socket);
 
     // Any inbound frame proves the peer is alive.
     socket.addEventListener("message", () => {
