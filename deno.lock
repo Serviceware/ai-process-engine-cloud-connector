@@ -100,6 +100,9 @@
     }
   },
   "workspace": {
+    "dependencies": [
+      "jsr:@std/assert@1"
+    ],
     "members": {
       "runtime": {
         "dependencies": [

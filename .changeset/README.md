@@ -17,5 +17,6 @@ or internal tooling and must not produce a release, create an empty changeset:
 deno task changeset --empty
 ```
 
-The release workflow consumes these files. Do not edit `package.json` versions,
-release headings in `CHANGELOG.md`, or maintained Compose image tags by hand.
+The repository's Deno release script consumes these files. Do not edit the
+version in `deno.json`, release headings in `CHANGELOG.md`, or maintained
+Compose image tags by hand.

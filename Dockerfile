@@ -4,7 +4,7 @@ FROM denoland/deno:2.8.1
 WORKDIR /app
 
 # Keep production dependency resolution identical to local development and CI.
-COPY deno.json deno.lock package.json ./
+COPY deno.json deno.lock ./
 COPY runtime/ ./runtime/
 
 # Cache dependencies without allowing the lock file to change.
