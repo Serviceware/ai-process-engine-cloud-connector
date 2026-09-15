@@ -49,3 +49,11 @@ organization owner must open the package settings once, connect this repository,
 and set the package visibility to **Public**; the anonymous-pull verification
 will fail until that is done. Promote the moving `latest` tag only after the
 release has been approved.
+
+## Development images
+
+Every successful push to `main` publishes the same commit for Linux AMD64 and
+ARM64 under the moving `dev` tag and the immutable `sha-<full-commit-sha>` tag.
+The workflow verifies that the resulting image is anonymously readable. Use
+these tags for integration testing only; production deployments should stay on a
+complete semantic version.

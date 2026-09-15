@@ -71,6 +71,10 @@ release is explicitly promoted. Published versions and their digests are listed
 in the repository's
 [Cloud Connector package](https://github.com/orgs/Serviceware/packages/container/package/cloud-connector).
 
+Every successful push to `main` also publishes a development image as `dev` and
+as the immutable `sha-<full-commit-sha>` tag. These tags are intended for
+integration testing, not production deployments.
+
 ## Start
 
 ```bash
