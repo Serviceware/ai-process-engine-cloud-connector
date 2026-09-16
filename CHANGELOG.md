@@ -3,7 +3,7 @@
 All notable changes to the Cloud Connector are documented in this file. Releases
 follow [Semantic Versioning](https://semver.org/).
 
-## 1.0.0 - 2026-08-31
+## 0.1.0 - 2026-08-31
 
 ### Added
 
@@ -36,7 +36,7 @@ follow [Semantic Versioning](https://semver.org/).
   customization and the local inbound WebSocket endpoint are not supported.
 - Derives the Serviceware WebSocket URL from `CLOUD_CONNECTOR_HOST` and the
   connection purpose, which defaults to `main`.
-- Pinned maintained container examples to `1.0.0` instead of `latest`.
+- Pinned maintained container examples to `0.1.0` instead of `latest`.
 
 ### Fixed
 

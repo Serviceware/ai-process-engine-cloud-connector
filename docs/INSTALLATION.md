@@ -7,7 +7,7 @@ Release images are hosted in the repository's GitHub Container Registry package
 and are publicly pullable without authentication:
 
 ```bash
-docker pull ghcr.io/serviceware/cloud-connector:1.0.0
+docker pull ghcr.io/serviceware/cloud-connector:0.1.0
 ```
 
 Pin the complete release version in production. The maintained Compose templates
