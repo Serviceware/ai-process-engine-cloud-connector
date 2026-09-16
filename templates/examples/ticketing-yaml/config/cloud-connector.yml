@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../../../schemas/cloud-connector.schema.json
+
+connection:
+  purpose: main
+  heartbeatIntervalSeconds: 30
+
+logging:
+  level: info
+
+# Ordered rules match complete target URLs; requests without a match are denied.
+forwarding:
+  - target: "^http://ticketing-api:3000(?:/.*)?$"
+    methods: [GET, POST, PUT, PATCH, DELETE]
+    timeout: 30000
+    request:
+      pathPrefix: /api/v2
+      auth:
+        type: bearer
+        token: "{{ env.TICKET_API_TOKEN }}"
+      headers:
+        set:
+          x-api-version: "2.0"
+          accept: application/json
+        add:
+          x-request-id: "{{ context.requestId }}"
+          x-timestamp: "{{ context.startedAt }}"
+        remove:
+          - x-forwarded-for
+          - x-real-ip
+    response:
+      headers:
+        add:
+          x-request-id: "{{ context.requestId }}"
+        remove:
+          - server
+          - x-powered-by

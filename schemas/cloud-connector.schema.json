@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceware.se/cloud-connector/schemas/cloud-connector.schema.json",
+  "title": "Serviceware Cloud Connector configuration",
+  "type": "object",
+  "required": ["connection", "forwarding"],
+  "additionalProperties": false,
+  "properties": {
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "default": "main",
+          "description": "Configuration Store connector purpose used in the WebSocket endpoint."
+        },
+        "heartbeatIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["error", "warn", "info", "debug"],
+          "default": "info"
+        }
+      }
+    },
+    "forwarding": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/forwardingConfig" }
+    }
+  },
+  "$defs": {
+    "forwardingConfig": {
+      "type": "object",
+      "required": ["target"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\^.*\\$$",
+          "description": "Safe regular expression anchored with ^ and $ and matched against the complete absolute HTTP(S) request URL."
+        },
+        "methods": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+          }
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 30000
+        },
+        "request": { "$ref": "#/$defs/requestConfig" },
+        "response": { "$ref": "#/$defs/responseConfig" }
+      }
+    },
+    "headerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "add": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "remove": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "authConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "username", "password"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "basic" },
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "token"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "bearer" },
+            "token": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "issuer", "clientId", "clientSecret"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "oauth2" },
+            "issuer": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OAuth 2.0 token endpoint."
+            },
+            "clientId": { "type": "string", "minLength": 1 },
+            "clientSecret": { "type": "string", "minLength": 1 },
+            "scope": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "requestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": { "$ref": "#/$defs/headerConfig" },
+        "pathPrefix": {
+          "type": "string",
+          "pattern": "^/(?!/)(?!.*(?:\\{\\{|\\}\\}))[^?#]*$"
+        },
+        "forwardIncomingCredentials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to forwarding inbound authorization and cookie headers."
+        },
+        "auth": { "$ref": "#/$defs/authConfig" }
+      }
+    },
+    "responseConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": { "$ref": "#/$defs/headerConfig" }
+      }
+    }
+  }
+}

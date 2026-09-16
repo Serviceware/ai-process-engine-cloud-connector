@@ -1,92 +1,60 @@
-# Cloud Connector release guide
+# Release
 
-Version `3.0.0` is a breaking security release. Workload access changes to
-default-deny and customer scripting, the SDK, file-based routes, and transparent
-proxy fallback are removed. A deployment must provide one valid YAML forwarding
-configuration.
+Deno scripts manage Cloud Connector Changesets, versions, changelog entries, Git
+tags, and GitHub Releases. The container is published from an immutable semantic
+version tag. Deno is the only required JavaScript runtime, and `deno.json` is
+the only package and task manifest.
 
-## Release contract
+## Add release intent
 
-For one release, these values must agree:
-
-- release version and Git tag, for example `3.0.0` and `v3.0.0`;
-- container tags in maintained compose examples; and
-- the matching `CHANGELOG.md` entry.
-
-There is no SDK artifact to publish.
-
-## Upgrade requirements
-
-Before replacing an earlier deployment:
-
-1. remove customer TypeScript/JavaScript function mounts and SDK dependencies;
-2. consolidate forwarding behavior into one `forwarding.yml`;
-3. set `CLOUD_CONNECTOR_FORWARDING_CONFIG` to its container path;
-4. configure `OUTBOUND_URL_ALLOWLIST` for the YAML target and approved
-   redirects; and
-5. restart the container after every YAML change.
-
-Without a readable, valid YAML file, startup fails. Without an explicit
-allowlist, startup succeeds but every workload target is rejected.
-
-## Pre-release verification
-
-Use Deno `2.8.1`, matching the production image:
+Every pull request includes a Changeset:
 
 ```bash
-git diff --check
-deno task check
-deno task lint
-deno task test
-
-docker build --pull --tag ghcr.io/serviceware/cloud-connector:3.0.0 .
-docker compose --file templates/starter/docker-compose.yml config --quiet
-docker compose --file templates/examples/ticketing-yaml/docker-compose.yml config --quiet
+deno task changeset
 ```
 
-Smoke-test with the starter YAML mounted:
+Choose the Semantic Versioning impact and describe the user-visible change. Use
+`deno task changeset --empty` when a pull request should not produce a release.
+Do not manually edit the version, generated release heading, or maintained
+Compose image tags.
+
+Run the checks before merging:
 
 ```bash
-docker run --rm --detach \
-  --name cloud-connector-release-smoke \
-  --publish 18080:8080 \
-  --env CLOUD_CONNECTOR_FORWARDING_CONFIG=/config/forwarding.yml \
-  --env INTERNAL_API_URL=https://internal.example \
-  --env OUTBOUND_URL_ALLOWLIST='[]' \
-  --volume "$PWD/templates/starter/forwarding.yml:/config/forwarding.yml:ro" \
-  ghcr.io/serviceware/cloud-connector:3.0.0
-
-curl --fail http://localhost:18080/health
-docker inspect --format '{{.State.Health.Status}}' cloud-connector-release-smoke
-docker stop cloud-connector-release-smoke
+deno task ci
+docker build -t cloud-connector:release-check .
+docker compose -f templates/starter/docker-compose.yml config
+docker compose -f templates/examples/ticketing-yaml/docker-compose.yml config
 ```
-
-Before approval, also confirm:
-
-- no `.ts`, `.js`, `.mjs`, `.cjs`, `.py`, or SDK files exist below `templates/`;
-- no dynamic import or evaluated customer content remains in `runtime/`;
-- an absolute inbound URL cannot replace the YAML target origin;
-- the empty allowlist blocks before network I/O;
-- initial and redirected allowed requests succeed only when matched;
-- malformed and missing YAML fail startup;
-- removed YAML customization fields such as conditions, body/status changes, and
-  arbitrary URL rewrites fail validation; and
-- documentation and examples use only Cloud Connector and Serviceware Cloud
-  naming.
 
 ## Publish
 
-After merging the verified commit:
+An authorized maintainer starts the **Deno release management** workflow
+manually. It creates or updates a release pull request that combines all pending
+entries, updates `deno.json` and `CHANGELOG.md`, and synchronizes the image
+version in both maintained Compose examples.
 
-```bash
-git tag --annotate v3.0.0 --message "Cloud Connector 3.0.0"
-git push origin v3.0.0
-docker push ghcr.io/serviceware/cloud-connector:3.0.0
-docker tag ghcr.io/serviceware/cloud-connector:3.0.0 \
-  ghcr.io/serviceware/cloud-connector:3
-docker push ghcr.io/serviceware/cloud-connector:3
-```
+After merging the release pull request, start the workflow manually again. This
+creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
+container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux
+AMD64 and ARM64. It also updates the moving `X.Y` and `X` tags, attaches SBOM
+and provenance data, checks the published manifest, and proves the package is
+anonymously pullable before the release succeeds. A manually pushed semantic
+version tag still runs the container release workflow as a recovery path.
 
-Move `latest` only when the release is approved as the production default.
-Record the image digest and release URL after pulling and repeating the smoke
-test on a clean host.
+The repository setting **Actions > General > Allow GitHub Actions to create and
+approve pull requests** must be enabled. The first workflow publication creates
+and links the `cloud-connector` package through `GITHUB_TOKEN` and its OCI
+source label. If organization policy disables inherited public visibility, an
+organization owner must open the package settings once, connect this repository,
+and set the package visibility to **Public**; the anonymous-pull verification
+will fail until that is done. Promote the moving `latest` tag only after the
+release has been approved.
+
+## Development images
+
+Every successful push to `main` publishes the same commit for Linux AMD64 and
+ARM64 under the moving `dev` tag and the immutable `sha-<full-commit-sha>` tag.
+The workflow verifies that the resulting image is anonymously readable. Use
+these tags for integration testing only; production deployments should stay on a
+complete semantic version.

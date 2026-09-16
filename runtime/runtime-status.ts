@@ -9,29 +9,35 @@
 export type ConnectionState = "connecting" | "open" | "disconnected";
 
 export type RuntimeStatus = {
-    /** Current state of the outbound cloud WebSocket. */
-    connectionState: ConnectionState;
-    /** Epoch ms of the last successful WebSocket open, or null if never opened. */
-    lastConnectedAt: number | null;
-    /** Epoch ms of the last inbound frame (proof of peer liveness), or null. */
-    lastInboundAt: number | null;
-    /**
-     * Epoch ms of the last sign of life from the supervision subsystem: a
-     * reconnect-loop iteration, a heartbeat tick, or an inbound frame. /health
-     * (liveness) fails only when this goes stale, i.e. the in-process recovery
-     * itself has wedged.
-     */
-    lastTickAt: number;
-    /** Current consecutive reconnect attempt counter (observability only). */
-    reconnectAttempt: number;
+  /** Current state of the outbound cloud WebSocket. */
+  connectionState: ConnectionState;
+  /** Epoch ms of the last successful WebSocket open, or null if never opened. */
+  lastConnectedAt: number | null;
+  /** Epoch ms of the last inbound frame (proof of peer liveness), or null. */
+  lastInboundAt: number | null;
+  /**
+   * Epoch ms of the last sign of life from the supervision subsystem: a
+   * reconnect-loop iteration, a heartbeat tick, or an inbound frame. /health
+   * (liveness) fails only when this goes stale, i.e. the in-process recovery
+   * itself has wedged.
+   */
+  lastTickAt: number;
+  /** Current consecutive reconnect attempt counter (observability only). */
+  reconnectAttempt: number;
+  /** Epoch ms of the latest hot-reload attempt, or null before the first. */
+  lastReloadAt: number | null;
+  /** Whether the latest hot-reload attempt succeeded, or null before one. */
+  lastReloadSucceeded: boolean | null;
 };
 
 export function createRuntimeStatus(now: number = Date.now()): RuntimeStatus {
-    return {
-        connectionState: "disconnected",
-        lastConnectedAt: null,
-        lastInboundAt: null,
-        lastTickAt: now,
-        reconnectAttempt: 0,
-    };
+  return {
+    connectionState: "disconnected",
+    lastConnectedAt: null,
+    lastInboundAt: null,
+    lastTickAt: now,
+    reconnectAttempt: 0,
+    lastReloadAt: null,
+    lastReloadSucceeded: null,
+  };
 }
