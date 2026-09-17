@@ -1,9 +1,9 @@
 # Ticketing Integration Deployment (YAML forwarding)
 # ==================================================
 #
-# Start: docker-compose up -d
-# Logs:    docker-compose logs -f
-# Stop:    docker-compose down
+# Start: docker compose up -d
+# Logs:    docker compose logs -f
+# Stop:    docker compose down
 
 services:
   cloud-connector:
@@ -13,16 +13,19 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Serviceware Cloud host and OAuth credentials stay outside the volume.
-      - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
-      - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
-      - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
-      - CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS=${CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS:-100}
-      - CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES=${CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES:-10485760}
-      - CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS=${CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS:-30}
+      # Required: replace these placeholders with values provided by
+      # Serviceware. Do not commit real credentials.
+      CLOUD_CONNECTOR_HOST: "https://your-serviceware-cloud.example"
+      CLOUD_CONNECTOR_CLIENT_ID: "your-client-id"
+      CLOUD_CONNECTOR_CLIENT_SECRET: "your-client-secret"
 
-      # Ticketing API secret referenced by cloud-connector.yml
-      - TICKET_API_TOKEN=${TICKET_API_TOKEN}
+      # Optional safety limits. These values match the runtime defaults.
+      CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS: "100"
+      CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES: "10485760"
+      CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "30"
+
+      # Ticketing API secret referenced by config/cloud-connector.yml.
+      TICKET_API_TOKEN: "your-secret-api-token"
 
     volumes:
       # Complete hot-reloadable operating configuration.
