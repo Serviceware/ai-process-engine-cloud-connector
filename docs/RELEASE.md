@@ -1,9 +1,9 @@
 # Release
 
-Deno scripts manage Cloud Connector Changesets, versions, changelog entries, Git
-tags, and GitHub Releases. The container is published from an immutable semantic
-version tag. Deno is the only required JavaScript runtime, and `deno.json` is
-the only package and task manifest.
+Deno scripts manage Serviceware AI Process Engine - Cloud Connector Changesets,
+versions, changelog entries, Git tags, and GitHub Releases. The container is
+published from an immutable semantic version tag. Deno is the only required
+JavaScript runtime, and `deno.json` is the only package and task manifest.
 
 ## Add release intent
 

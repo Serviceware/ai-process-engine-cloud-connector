@@ -8,8 +8,8 @@ connection:
 logging:
   level: info
 
-# Rules match the complete URL requested by Serviceware Cloud. Later matching
-# rules override earlier explicit values. No match means deny.
+# Rules match the complete URL requested by Serviceware AI Process Engine.
+# Later matching rules override earlier explicit values. No match means deny.
 forwarding:
   - target: "^http://your-internal-api:3000(?:/.*)?$"
     methods: [GET, POST]

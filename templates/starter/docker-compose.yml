@@ -1,9 +1,12 @@
-# Cloud Connector Deployment
-# ==========================
+# Serviceware AI Process Engine - Cloud Connector local deployment
+# =================================================================
 #
-# Start: docker-compose up -d
-# Logs:    docker-compose logs -f
-# Stop:    docker-compose down   (the only intended stop path)
+# Reference and local testing only. Replacing the placeholders below writes
+# secrets in clear text. Use an orchestrator and secret store in production.
+#
+# Start: docker compose up -d
+# Logs:    docker compose logs -f
+# Stop:    docker compose down   (the only intended stop path)
 #
 # restart: always => the container restarts automatically after crashes, OOMs,
 # daemon restarts, and host reboots. Only "docker compose down" stops it
@@ -17,16 +20,19 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Serviceware Cloud host and OAuth credentials stay outside the volume.
-      - CLOUD_CONNECTOR_HOST=${SERVICEWARE_HOST}
-      - CLOUD_CONNECTOR_CLIENT_ID=${SERVICEWARE_CLIENT_ID}
-      - CLOUD_CONNECTOR_CLIENT_SECRET=${SERVICEWARE_CLIENT_SECRET}
-      - CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS=${CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS:-100}
-      - CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES=${CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES:-10485760}
-      - CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS=${CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS:-30}
+      # Required: replace these placeholders with values provided by
+      # Serviceware. Do not commit real credentials.
+      CLOUD_CONNECTOR_HOST: "https://your-serviceware-cloud.example"
+      CLOUD_CONNECTOR_CLIENT_ID: "your-client-id"
+      CLOUD_CONNECTOR_CLIENT_SECRET: "your-client-secret"
 
-      # Secrets referenced by cloud-connector.yml also stay in the environment.
-      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      # Optional safety limits. These values match the runtime defaults.
+      CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS: "100"
+      CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES: "10485760"
+      CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "30"
+
+      # Target secret referenced by config/cloud-connector.yml.
+      INTERNAL_API_TOKEN: "your-secret-api-token"
 
     volumes:
       # Complete hot-reloadable operating configuration.

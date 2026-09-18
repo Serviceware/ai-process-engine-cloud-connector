@@ -1,87 +1,105 @@
 # Installation
 
-The connector needs Docker, access to Serviceware Cloud, and network access to
-the internal target service.
+Deploy the Serviceware AI Process Engine - Cloud Connector as a container with
+outbound network access to Serviceware AI Process Engine and the explicitly
+allowed internal target services.
 
-Release images are hosted in the repository's GitHub Container Registry package
-and are publicly pullable without authentication:
+## Production deployment
 
-```bash
-docker pull ghcr.io/serviceware/cloud-connector:0.1.0
-```
-
-Pin the complete release version in production. The maintained Compose templates
-already do this and are updated by the release automation.
-
-## Before you start
-
-- A Cloud Connector with the same `connection.purpose` (default `main`) must
-  already exist in the Serviceware Configuration Store.
-- The OAuth service account must have the **Advanced Cloud Connector**
-  permission.
-
-## Set up
-
-Copy the starter template:
+Use a container orchestrator such as Kubernetes or Nomad and inject credentials
+through its secret store. The image is publicly pullable without registry
+authentication:
 
 ```bash
-cp -R templates/starter my-cloud-connector
-cd my-cloud-connector
-cp .env.example .env
+docker pull ghcr.io/serviceware/cloud-connector:latest
 ```
 
-Then:
+The `latest` tag points to the most recently promoted release. For repeatable
+rollouts, resolve it once and deploy the validated image digest.
 
-1. Enter the Serviceware host and credentials in .env.
-2. Add any secret needed by the internal target to .env.
-3. Set the forwarding target rules in config/cloud-connector.yml. Each target is
-   a safe regular expression over the complete absolute URL, anchored with `^`
-   and `$`.
+Configure the workload with:
 
-Start the connector:
+- the required `CLOUD_CONNECTOR_HOST`, `CLOUD_CONNECTOR_CLIENT_ID`, and
+  `CLOUD_CONNECTOR_CLIENT_SECRET` environment variables;
+- any target secrets referenced by `cloud-connector.yml`;
+- one read-only directory mounted at `/config`; and
+- an optional port mapping for the probe service on container port `8080`.
+
+The OAuth service account needs the **Advanced Cloud Connector** permission. See
+the [complete environment variable table](../README.md#environment-variables)
+for optional resilience and safety settings.
+
+Place `cloud-connector.yml` in the mounted directory. Each forwarding target
+must be a safe regular expression over the complete absolute URL, anchored with
+`^` and `$`. Mount the directory instead of only the file so projected-volume
+and atomic replacement updates can be detected.
+
+You do not need to create a connector purpose manually. Serviceware AI Process
+Engine creates the configured `connection.purpose` when the connector connects
+for the first time.
+
+Do not store credentials in a container manifest. Reference secrets managed by
+the deployment platform, and restrict access to both those secrets and the
+mounted forwarding policy.
+
+## Local testing with Docker Compose
+
+The maintained Compose files are intended for local testing and as deployment
+references only:
+
+- [starter template](../templates/starter);
+- [ticketing example](../templates/examples/ticketing-yaml).
+
+Copy one of the directories, edit `config/cloud-connector.yml`, and replace the
+placeholder environment values in `docker-compose.yml`. The populated Compose
+file contains secrets in clear text, so never commit it or use it as-is in
+production.
+
+Start and inspect a local test with:
 
 ```bash
 docker compose up -d
 docker compose logs -f
 ```
 
-Check its status:
+Check its status in another terminal:
 
 ```bash
 curl --fail http://localhost:8080/health
 curl --fail http://localhost:8080/ready
 ```
 
-/health confirms that the process is running. /ready confirms that the cloud
-connection is open and reports connection timestamps, reconnect attempts, and
-the result of the latest configuration reload.
+`/health` confirms that the process is running. `/ready` confirms that the
+platform connection is open and reports connection timestamps, reconnect
+attempts, and the result of the latest configuration reload.
+
+For a direct `docker run` example that keeps secret values out of the command,
+see [Getting started](../README.md#getting-started).
 
 ## Change the configuration
 
-Edit config/cloud-connector.yml in the mounted config directory. Valid changes
-take effect without rebuilding the image or restarting the application.
-
-Keep credentials and secrets in .env or the secret store provided by the
-deployment platform. Resilience settings also remain environment variables and
-normally do not need adjustment.
+Edit `cloud-connector.yml` in the mounted config directory. Valid changes take
+effect without rebuilding the image or restarting the application. An invalid
+update is rejected, and the last working configuration remains active.
 
 The defaults allow 100 concurrent forwarded requests, buffer at most 10 MiB per
 response, and drain accepted requests for up to 30 seconds before a reconnect or
 shutdown. Override them with `CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`,
 `CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES`, and
 `CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` when needed. Response bodies are UTF-8
-text; binary payloads are not supported by the current protocol.
+text; binary payloads are not supported by the current platform protocol.
 
 ## If it does not connect
 
 - Check the container logs.
-- Confirm the Serviceware host and credentials.
-- Confirm that `SERVICEWARE_HOST` and the optional connection `purpose` are
-  correct. Compose maps `SERVICEWARE_HOST` to the runtime's
-  `CLOUD_CONNECTOR_HOST`; the WebSocket URL is derived from them automatically.
-- Confirm that the service account has **Advanced Cloud Connector** permission
-  and that the matching connector purpose exists in Configuration Store.
+- Confirm the Serviceware AI Process Engine host and OAuth credentials.
+- Confirm that `CLOUD_CONNECTOR_HOST` and the optional connection `purpose` are
+  correct. The WebSocket URL is derived from them automatically.
+- Confirm that the service account has the **Advanced Cloud Connector**
+  permission.
 - Confirm that the complete target URL matches a forwarding rule.
 - Validate the YAML file for indentation or typing errors.
 
-An invalid YAML update is ignored, so the last working setup continues to run.
+If the first connection succeeds, the configured purpose is created
+automatically. An invalid YAML update is ignored so the last working setup can
+continue to run.
