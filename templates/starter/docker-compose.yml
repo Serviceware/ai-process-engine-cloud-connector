@@ -1,5 +1,8 @@
-# Cloud Connector Deployment
-# ==========================
+# Serviceware AI Process Engine - Cloud Connector local deployment
+# =================================================================
+#
+# Reference and local testing only. Replacing the placeholders below writes
+# secrets in clear text. Use an orchestrator and secret store in production.
 #
 # Start: docker compose up -d
 # Logs:    docker compose logs -f

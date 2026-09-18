@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving the Cloud Connector.
+Thank you for improving the Serviceware AI Process Engine - Cloud Connector.
 
 ## Make a change
 

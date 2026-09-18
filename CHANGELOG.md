@@ -1,7 +1,8 @@
 # Changelog
 
-All notable changes to the Cloud Connector are documented in this file. Releases
-follow [Semantic Versioning](https://semver.org/).
+All notable changes to the Serviceware AI Process Engine - Cloud Connector are
+documented in this file. Releases follow
+[Semantic Versioning](https://semver.org/).
 
 ## 0.1.0 - 2026-08-31
 
@@ -26,8 +27,8 @@ follow [Semantic Versioning](https://semver.org/).
   redirect chains to 20 hops.
 - Removed authorization, proxy authorization, and cookie credentials when a
   redirect crosses an origin boundary.
-- Kept the required Serviceware Cloud OAuth and WebSocket control-plane traffic
-  outside the workload policy.
+- Kept the required Serviceware AI Process Engine OAuth and WebSocket
+  control-plane traffic outside the workload policy.
 - Added the stable `OUTBOUND_URL_NOT_ALLOWED` runtime error code.
 
 ### Changed

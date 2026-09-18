@@ -13,9 +13,9 @@ repository contract and must stay aligned with the implementation:
 - [Documentation](docs/conventions/DOCUMENTATION.md)
 - [Pull requests](docs/conventions/PULL_REQUESTS.md)
 
-Keep the Cloud Connector focused on its forward-proxy role. Prefer small,
-explicit changes, preserve deny-by-default behavior, and update tests and
-documentation together with behavior.
+Keep the Serviceware AI Process Engine - Cloud Connector focused on its
+forward-proxy role. Prefer small, explicit changes, preserve deny-by-default
+behavior, and update tests and documentation together with behavior.
 
 Before finishing a change, run the checks required by the linked conventions and
 inspect the complete diff for generated files, credentials, and unrelated edits.

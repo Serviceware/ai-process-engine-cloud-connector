@@ -2,10 +2,10 @@
 
 ## Product boundary
 
-The Cloud Connector is a forward proxy between Serviceware Cloud and explicitly
-allowed internal HTTP services. It maintains an outbound WebSocket connection,
-executes approved HTTP requests, and returns text responses over the cloud
-protocol.
+The Serviceware AI Process Engine - Cloud Connector is a forward proxy between
+Serviceware AI Process Engine and explicitly allowed internal HTTP services. It
+maintains an outbound WebSocket connection, executes approved HTTP requests, and
+returns text responses over the platform protocol.
 
 It does not execute customer code, expose a local WebSocket server, discover
 targets, or act as a general-purpose network tunnel. New features must fit the
@@ -14,8 +14,8 @@ forward-proxy boundary.
 ## Runtime flow
 
 1. `runtime/main.ts` reads process configuration and the mounted YAML file.
-2. `runtime/websocket-client.ts` derives and maintains the Serviceware Cloud
-   connection.
+2. `runtime/websocket-client.ts` derives and maintains the Serviceware AI
+   Process Engine connection.
 3. `runtime/protocol.ts` validates and serializes protocol frames.
 4. `runtime/connector.ts` applies concurrency and drain behavior.
 5. `runtime/yaml-forwarding.ts` resolves the forwarding policy and calls the

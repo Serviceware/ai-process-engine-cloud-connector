@@ -1,7 +1,9 @@
-# Cloud Connector starter
+# Serviceware AI Process Engine - Cloud Connector starter
 
-This template connects Serviceware Cloud to explicitly allowed internal HTTP
-targets.
+This template connects Serviceware AI Process Engine to explicitly allowed
+internal HTTP targets. Use it for local testing or as a deployment reference,
+not as a production manifest: populated environment values are stored in clear
+text. Use an orchestrator and secret store in production.
 
 ## Use it
 

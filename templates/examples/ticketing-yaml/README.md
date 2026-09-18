@@ -1,6 +1,9 @@
 # Ticketing example
 
-This example forwards Serviceware Cloud calls to one ticketing API.
+This example forwards Serviceware AI Process Engine calls to one ticketing API.
+Use it for local testing or as a deployment reference, not as a production
+manifest: populated environment values are stored in clear text. Use an
+orchestrator and secret store in production.
 
 Enter the Serviceware and ticketing credentials directly in docker-compose.yml,
 then review config/cloud-connector.yml before starting:

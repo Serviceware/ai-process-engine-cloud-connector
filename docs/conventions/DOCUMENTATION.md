@@ -24,14 +24,16 @@ Examples must be safe to copy:
 
 - use obvious placeholder hosts and credentials;
 - never include real secrets;
-- pin production images to a complete semantic version;
+- use the moving `latest` image tag in prose so release versions do not make the
+  documentation stale;
+- keep maintained Compose image versions under release-tooling control;
 - keep Compose examples self-contained without sample environment files;
 - use the current `docker compose` command spelling; and
 - prefer deny-by-default target expressions over broad wildcards.
 
-The release tooling updates complete semantic image references in Markdown and
-Compose files. Each file that contains the release image must contain exactly
-one versioned reference.
+The release tooling updates complete semantic image references in maintained
+Compose files. Prose documentation uses `latest` and is not a versioned release
+artifact.
 
 Update documentation in the same pull request as the behavior it describes.
 Check relative links, code examples, variable names, defaults, and paths against

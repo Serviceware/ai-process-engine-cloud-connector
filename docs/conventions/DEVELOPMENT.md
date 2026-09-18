@@ -33,8 +33,10 @@ instead of introducing local formatting exceptions.
 ## Generated artifacts
 
 Change `openapi/api.yml`, then run `deno task generate:api` to update protocol
-models. Never edit `runtime/generated/` directly. Run `deno task generate:check`
-before completion whenever the protocol or generation path changes.
+models. Coordinate every change to this shared protocol with the Serviceware AI
+Process Engine backend before merging it. Never edit `runtime/generated/`
+directly. Run `deno task generate:check` before completion whenever the protocol
+or generation path changes.
 
 The release version in `deno.json`, release headings in `CHANGELOG.md`, and
 versioned image references are maintained by the release workflow. Do not edit
