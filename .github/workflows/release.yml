@@ -103,18 +103,16 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: Verify public multi-platform image
+      - name: Verify authenticated multi-platform image
         env:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          docker logout ghcr.io
-
           for attempt in {1..12}; do
             if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}@${IMAGE_DIGEST}")"; then
               break
             fi
             if [[ "${attempt}" == "12" ]]; then
-              echo "Published image is not anonymously readable from GHCR." >&2
+              echo "Published image is not readable with the workflow's GHCR credentials." >&2
               exit 1
             fi
             sleep 5
@@ -177,5 +175,6 @@ jobs:
           echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
           echo "docker pull ${IMAGE_NAME}:${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
           echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          echo "GHCR authentication and package read access are required." >> "${GITHUB_STEP_SUMMARY}"
           echo >> "${GITHUB_STEP_SUMMARY}"
           echo "Immutable digest: \`${IMAGE_NAME}@${IMAGE_DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"

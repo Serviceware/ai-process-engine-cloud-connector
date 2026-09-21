@@ -136,6 +136,6 @@ jobs:
             gh release create "${tag}" \
               --verify-tag \
               --title "Cloud Connector ${VERSION}" \
-              --notes "Container image: ghcr.io/serviceware/cloud-connector:${VERSION}" \
+              --notes "Private container image (GHCR authentication required): ghcr.io/serviceware/cloud-connector:${VERSION}" \
               --generate-notes
           fi

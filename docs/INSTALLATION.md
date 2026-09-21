@@ -7,12 +7,19 @@ allowed internal target services.
 ## Production deployment
 
 Use a container orchestrator such as Kubernetes or Nomad and inject credentials
-through its secret store. The image is publicly pullable without registry
-authentication:
+through its secret store. The image is private. Use a GitHub account with read
+access to the `cloud-connector` package and a classic personal access token with
+the `read:packages` scope. Authorize the token for the Serviceware organization
+if SSO is required. Load the token through your secret manager, then log in
+without putting the token on the command line:
 
 ```bash
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 docker pull ghcr.io/serviceware/cloud-connector:1.0.0
 ```
+
+For production, provide equivalent registry credentials through the
+orchestrator's secret mechanism; do not commit them to deployment manifests.
 
 The `latest` tag points to the most recently promoted release. For repeatable
 rollouts, resolve it once and deploy the validated image digest.
@@ -53,7 +60,7 @@ references only:
 Copy one of the directories, edit `config/cloud-connector.yml`, and replace the
 placeholder environment values in `docker-compose.yml`. The populated Compose
 file contains secrets in clear text, so never commit it or use it as-is in
-production.
+production. Log in to GHCR as described above before starting the stack.
 
 Start and inspect a local test with:
 
