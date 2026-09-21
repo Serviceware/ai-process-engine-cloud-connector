@@ -98,12 +98,6 @@ jobs:
             git push origin "refs/tags/${tag}"
           fi
 
-          if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" \
-              --verify-tag \
-              --title "Cloud Connector ${version}" \
-              --generate-notes
-          fi
           echo "published=true" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -119,3 +113,29 @@ jobs:
       contents: read
       id-token: write
       packages: write
+
+  publish-release:
+    name: Publish GitHub release
+    needs:
+      - release
+      - publish-container
+    if: needs.release.outputs.published == 'true' && needs.publish-container.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Create GitHub release after the image is verified
+        run: |
+          tag="v${VERSION}"
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" \
+              --verify-tag \
+              --title "Cloud Connector ${VERSION}" \
+              --notes "Container image: ghcr.io/serviceware/cloud-connector:${VERSION}" \
+              --generate-notes
+          fi
