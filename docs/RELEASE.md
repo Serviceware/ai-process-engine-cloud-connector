@@ -35,26 +35,25 @@ entries, updates `deno.json` and `CHANGELOG.md`, and synchronizes the image
 version in both maintained Compose examples.
 
 After merging the release pull request, start the workflow manually again. This
-creates `vX.Y.Z` and a GitHub Release. The same workflow invokes the verified
-container publisher for `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux
-AMD64 and ARM64. It also updates the moving `X.Y` and `X` tags, attaches SBOM
-and provenance data, checks the published manifest, and proves the package is
-anonymously pullable before the release succeeds. A manually pushed semantic
-version tag still runs the container release workflow as a recovery path.
+creates `vX.Y.Z` and invokes the verified container publisher for
+`ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux AMD64 and ARM64. It also
+updates the moving `X.Y` and `X` tags, attaches SBOM and provenance data, checks
+the published manifest, and pulls the private image with the workflow's GHCR
+credentials. The GitHub Release is created only after these checks pass. The
+image is available only to accounts with package read access; no anonymous pull
+is supported.
 
 The repository setting **Actions > General > Allow GitHub Actions to create and
 approve pull requests** must be enabled. The first workflow publication creates
-and links the `cloud-connector` package through `GITHUB_TOKEN` and its OCI
-source label. If organization policy disables inherited public visibility, an
-organization owner must open the package settings once, connect this repository,
-and set the package visibility to **Public**; the anonymous-pull verification
-will fail until that is done. Promote the moving `latest` tag only after the
+and links the private `cloud-connector` package through `GITHUB_TOKEN` and its
+OCI source label. The linked repository needs package access for the workflow's
+authenticated verification. Promote the moving `latest` tag only after the
 release has been approved.
 
 ## Development images
 
 Every successful push to `main` publishes the same commit for Linux AMD64 and
 ARM64 under the moving `dev` tag and the immutable `sha-<full-commit-sha>` tag.
-The workflow verifies that the resulting image is anonymously readable. Use
-these tags for integration testing only; production deployments should stay on a
-complete semantic version.
+The workflow verifies that the resulting image is readable with its GHCR token.
+Use these tags for integration testing only; production deployments should stay
+on a complete semantic version.

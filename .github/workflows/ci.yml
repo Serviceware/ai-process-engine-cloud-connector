@@ -261,18 +261,17 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: Verify anonymously pullable image
+      - name: Verify authenticated image pull
         env:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          docker logout ghcr.io
-
           for attempt in {1..12}; do
             if docker buildx imagetools inspect "${IMAGE_NAME}@${IMAGE_DIGEST}"; then
+              docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
               exit 0
             fi
             if [[ "${attempt}" == "12" ]]; then
-              echo "Development image is not anonymously readable from GHCR." >&2
+              echo "Development image is not readable with the workflow's GHCR credentials." >&2
               exit 1
             fi
             sleep 5
@@ -288,5 +287,6 @@ jobs:
           echo "docker pull ${IMAGE_NAME}:dev" >> "${GITHUB_STEP_SUMMARY}"
           echo "docker pull ${IMAGE_NAME}:sha-${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
           echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          echo "GHCR authentication and package read access are required." >> "${GITHUB_STEP_SUMMARY}"
           echo >> "${GITHUB_STEP_SUMMARY}"
           echo "Immutable digest: \`${IMAGE_NAME}@${IMAGE_DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"

@@ -14,7 +14,9 @@ You need:
 - Docker Engine;
 - network access from the Docker host to Serviceware AI Process Engine and the
   internal target services; and
-- an OAuth service account with the **Advanced Cloud Connector** permission.
+- an OAuth service account with the **Advanced Cloud Connector** permission;
+- a GitHub account with read access to the private
+  [container package](https://github.com/orgs/Serviceware/packages/container/package/cloud-connector).
 
 You do not need to create a connector purpose manually. Serviceware AI Process
 Engine creates the configured `connection.purpose` when the connector connects
@@ -48,6 +50,10 @@ forwarding rule. See the
 YAML contract.
 
 ### 2. Start the container
+
+Log in to GHCR before pulling the private image. See
+[Installation](docs/INSTALLATION.md#production-deployment) for token and
+deployment guidance.
 
 Export the three required connection variables and any target secrets, such as
 `INTERNAL_API_TOKEN`, into the current shell through your secret-management
@@ -133,10 +139,11 @@ a template, replace its placeholders, and run `docker compose up -d`.
 
 ## Container image
 
-Release images for Linux AMD64 and ARM64 are published publicly to the
+Release images for Linux AMD64 and ARM64 are published privately to the
 [container package](https://github.com/orgs/Serviceware/packages/container/package/cloud-connector).
-The `latest` tag points to the most recently promoted release. For repeatable
-production rollouts, deploy the image digest that you validated.
+Pulling requires GHCR authentication and package read access. The `latest` tag
+points to the most recently promoted release. For repeatable production
+rollouts, deploy the image digest that you validated.
 
 Builds from `main` are also published as `dev` and `sha-<full-commit-sha>` for
 integration testing. Do not use these development tags in production.
