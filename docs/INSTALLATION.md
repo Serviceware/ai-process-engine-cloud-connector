@@ -11,7 +11,7 @@ through its secret store. The image is publicly pullable without registry
 authentication:
 
 ```bash
-docker pull ghcr.io/serviceware/cloud-connector:latest
+docker pull ghcr.io/serviceware/cloud-connector:1.0.0
 ```
 
 The `latest` tag points to the most recently promoted release. For repeatable

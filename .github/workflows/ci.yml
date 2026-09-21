@@ -200,7 +200,7 @@ jobs:
 
   publish-development:
     name: Publish development image
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && needs.required.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: required
     runs-on: ubuntu-latest
     timeout-minutes: 30
