@@ -4,6 +4,13 @@ All notable changes to the Serviceware AI Process Engine - Cloud Connector are
 documented in this file. Releases follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.0.0 - 2026-09-21
+
+### Major changes
+
+- Publish the first stable Cloud Connector release with hot-reloadable YAML
+  forwarding, default-deny outbound rules, and a multi-platform container image.
+
 ## 0.1.0 - 2026-08-31
 
 ### Added

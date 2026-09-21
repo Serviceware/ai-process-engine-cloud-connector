@@ -10,7 +10,7 @@
 
 services:
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:0.1.0
+    image: ghcr.io/serviceware/cloud-connector:1.0.0
     container_name: ticketing-cloud-connector
     restart: always
     ports:
