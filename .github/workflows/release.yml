@@ -16,7 +16,10 @@ jobs:
     name: Verify release commit
     uses: ./.github/workflows/ci.yml
     permissions:
+      attestations: write
       contents: read
+      id-token: write
+      packages: write
 
   publish:
     name: Publish versioned image

@@ -14,7 +14,10 @@ jobs:
     name: Verify main
     uses: ./.github/workflows/ci.yml
     permissions:
+      attestations: write
       contents: read
+      id-token: write
+      packages: write
 
   release:
     name: Create release pull request or tag
