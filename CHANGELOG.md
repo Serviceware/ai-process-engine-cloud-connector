@@ -4,6 +4,14 @@ All notable changes to the Serviceware AI Process Engine - Cloud Connector are
 documented in this file. Releases follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.0.1 - 2026-09-28
+
+### Fixed
+
+- Allow Cloud Connector authentication through Serviceware SSO, publish `latest`
+  with each new release, and keep non-pullable provenance attestations out of
+  GHCR image tags.
+
 ## 1.0.0 - 2026-09-21
 
 ### Major changes
