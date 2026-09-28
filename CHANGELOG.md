@@ -8,7 +8,9 @@ documented in this file. Releases follow
 
 ### Fixed
 
-- Allow Cloud Connector authentication through Serviceware SSO, publish `latest` with each new release, and keep non-pullable provenance attestations out of GHCR image tags.
+- Allow Cloud Connector authentication through Serviceware SSO, publish `latest`
+  with each new release, and keep non-pullable provenance attestations out of
+  GHCR image tags.
 
 ## 1.0.0 - 2026-09-21
 
