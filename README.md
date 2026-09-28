@@ -70,7 +70,7 @@ docker run --detach \
   --env CLOUD_CONNECTOR_CLIENT_ID \
   --env CLOUD_CONNECTOR_CLIENT_SECRET \
   --env INTERNAL_API_TOKEN \
-  ghcr.io/serviceware/cloud-connector:1.0.0
+  ghcr.io/serviceware/cloud-connector:1.0.1
 ```
 
 Check the local probe endpoints:

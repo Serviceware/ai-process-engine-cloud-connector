@@ -15,7 +15,7 @@ without putting the token on the command line:
 
 ```bash
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-docker pull ghcr.io/serviceware/cloud-connector:1.0.0
+docker pull ghcr.io/serviceware/cloud-connector:1.0.1
 ```
 
 For production, provide equivalent registry credentials through the
