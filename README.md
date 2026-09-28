@@ -146,7 +146,10 @@ points to the most recently promoted release. For repeatable production
 rollouts, deploy the image digest that you validated.
 
 Builds from `main` are also published as `dev` and `sha-<full-commit-sha>` for
-integration testing. Do not use these development tags in production.
+integration testing. Do not use these development tags in production. Older
+`sha256-<digest>` entries in the package are provenance attestations, not
+container images. Pull an image by its semantic version, `dev`, `sha-<commit>`,
+or the image digest shown on one of those versions.
 
 ## Configuration behavior
 

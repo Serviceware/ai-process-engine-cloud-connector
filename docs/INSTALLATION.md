@@ -34,7 +34,9 @@ Configure the workload with:
 
 The OAuth service account needs the **Advanced Cloud Connector** permission. See
 the [complete environment variable table](../README.md#environment-variables)
-for optional resilience and safety settings.
+for optional resilience and safety settings. The connector accepts the HTTPS
+issuer `sso.swop.cloud` returned by the platform's `.well-known` configuration
+when requesting its own access token.
 
 Place `cloud-connector.yml` in the mounted directory. Each forwarding target
 must be a safe regular expression over the complete absolute URL, anchored with

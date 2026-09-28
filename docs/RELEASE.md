@@ -54,6 +54,8 @@ release has been approved.
 
 Every successful push to `main` publishes the same commit for Linux AMD64 and
 ARM64 under the moving `dev` tag and the immutable `sha-<full-commit-sha>` tag.
-The workflow verifies that the resulting image is readable with its GHCR token.
-Use these tags for integration testing only; production deployments should stay
-on a complete semantic version.
+The workflow pulls the commit tag with its GHCR token. Build provenance is
+stored in GitHub's attestation service without publishing a non-pullable
+`sha256-*` registry tag. Older `sha256-*` package entries are attestations, not
+images. Use these tags for integration testing only; production deployments
+should stay on a complete semantic version.

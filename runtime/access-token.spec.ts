@@ -42,6 +42,7 @@ Deno.test("generateAccessToken resolves issuer and requests a client credentials
       "https://cloud.example/realms/serviceware/protocol/openid-connect/token",
     );
     assertEquals(calls[1].init?.method, "POST");
+    assertEquals(calls[1].init?.redirect, "error");
     assertEquals(calls[1].init?.headers, {
       "Content-Type": "application/x-www-form-urlencoded",
     });
@@ -93,19 +94,57 @@ Deno.test("generateAccessToken rejects token responses without access token", as
   }
 });
 
-Deno.test("generateAccessToken refuses to send secrets to a cross-origin issuer", async () => {
-  await assertRejects(
-    () =>
-      generateAccessToken({
-        host: "https://cloud.example/",
-        clientId: "client-id",
-        clientSecret: "client-secret",
-        fetcher: () =>
-          Promise.resolve(Response.json({
-            auth: { issuer: "https://attacker.example/realms/serviceware" },
-          })),
-      }),
-    Error,
-    "does not match Cloud Connector host origin",
-  );
+Deno.test("generateAccessToken accepts the Serviceware SSO issuer", async () => {
+  const calls: string[] = [];
+  const accessToken = await generateAccessToken({
+    host: "https://cloud.example/",
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    fetcher: (input) => {
+      const url = input.toString();
+      calls.push(url);
+      if (url === "https://cloud.example/.well-known") {
+        return Promise.resolve(Response.json({
+          auth: { issuer: "https://sso.swop.cloud/realms/serviceware" },
+        }));
+      }
+      return Promise.resolve(Response.json({ access_token: "access-token" }));
+    },
+  });
+
+  assertEquals(accessToken, "access-token");
+  assertEquals(calls, [
+    "https://cloud.example/.well-known",
+    "https://sso.swop.cloud/realms/serviceware/protocol/openid-connect/token",
+  ]);
+});
+
+Deno.test("generateAccessToken rejects untrusted issuers before sending credentials", async () => {
+  for (
+    const issuer of [
+      "https://attacker.example/realms/serviceware",
+      "https://sso.swop.cloud.evil.example/realms/serviceware",
+      "http://sso.swop.cloud/realms/serviceware",
+      "https://sso.swop.cloud:8443/realms/serviceware",
+      "https://user:password@sso.swop.cloud/realms/serviceware",
+      "https://sso.swop.cloud/realms/serviceware?next=attacker",
+    ]
+  ) {
+    let calls = 0;
+    await assertRejects(
+      () =>
+        generateAccessToken({
+          host: "https://cloud.example/",
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          fetcher: () => {
+            calls++;
+            return Promise.resolve(Response.json({ auth: { issuer } }));
+          },
+        }),
+      Error,
+      "is not allowed for Cloud Connector host origin",
+    );
+    assertEquals(calls, 1);
+  }
 });

@@ -104,14 +104,14 @@ jobs:
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+          push-to-registry: false
 
       - name: Verify authenticated multi-platform image
         env:
-          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           for attempt in {1..12}; do
-            if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}@${IMAGE_DIGEST}")"; then
+            if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}:${VERSION}")"; then
               break
             fi
             if [[ "${attempt}" == "12" ]]; then
@@ -130,7 +130,7 @@ jobs:
           ' <<< "${manifest}")"
           [[ "${platforms}" == '["linux/amd64","linux/arm64"]' ]]
 
-          docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
+          docker pull "${IMAGE_NAME}:${VERSION}"
 
       - name: Start published Cloud Connector image
         run: |
