@@ -47,8 +47,8 @@ The repository setting **Actions > General > Allow GitHub Actions to create and
 approve pull requests** must be enabled. The first workflow publication creates
 and links the private `cloud-connector` package through `GITHUB_TOKEN` and its
 OCI source label. The linked repository needs package access for the workflow's
-authenticated verification. Use the separate **Promote release to latest**
-workflow only when repointing `latest` to an already published version.
+authenticated verification. Each successful release updates `latest`
+automatically.
 
 ## Development images
 
