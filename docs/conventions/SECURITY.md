@@ -10,7 +10,10 @@ timeouts as security-sensitive.
 - Match policies against the complete absolute target URL.
 - Accept only HTTP and HTTPS targets.
 - Keep target regular expressions anchored and reject unsafe expressions.
-- Apply the outbound URL policy to every target request and OAuth token request.
+- Apply the outbound URL policy to every forwarded target request. OAuth token
+  requests use their configured issuer outside the target allowlist; reject
+  token endpoint redirects. For the control plane, accept the platform origin
+  and the HTTPS `sso.swop.cloud` issuer only.
 - Revalidate redirect destinations; do not allow redirects to bypass policy.
 
 Do not broaden a target rule in an example merely to make setup easier.

@@ -259,15 +259,13 @@ jobs:
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+          push-to-registry: false
 
-      - name: Verify authenticated image pull
-        env:
-          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+      - name: Verify authenticated image pulls by tag
         run: |
           for attempt in {1..12}; do
-            if docker buildx imagetools inspect "${IMAGE_NAME}@${IMAGE_DIGEST}"; then
-              docker pull "${IMAGE_NAME}@${IMAGE_DIGEST}"
+            if docker buildx imagetools inspect "${IMAGE_NAME}:sha-${GITHUB_SHA}" &&
+              docker pull "${IMAGE_NAME}:sha-${GITHUB_SHA}"; then
               exit 0
             fi
             if [[ "${attempt}" == "12" ]]; then

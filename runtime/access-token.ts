@@ -58,17 +58,23 @@ export async function generateAccessToken(
     );
   }
   const configuredOrigin = new URL(options.host).origin;
-  const issuerOrigin = new URL(authEndpoint).origin;
-  if (issuerOrigin !== configuredOrigin) {
+  const issuer = new URL(authEndpoint);
+  const trustedSsoIssuer = issuer.protocol === "https:" &&
+    issuer.hostname === "sso.swop.cloud" && issuer.port === "";
+  if (
+    issuer.username || issuer.password || issuer.search || issuer.hash ||
+    (issuer.origin !== configuredOrigin && !trustedSsoIssuer)
+  ) {
     throw new Error(
-      `Authentication issuer origin ${issuerOrigin} does not match Cloud Connector host origin ${configuredOrigin}.`,
+      `Authentication issuer ${issuer.origin} is not allowed for Cloud Connector host origin ${configuredOrigin}.`,
     );
   }
 
   const tokenResponse = await fetcher(
-    joinUrl(authEndpoint, "protocol/openid-connect/token"),
+    joinUrl(issuer.href, "protocol/openid-connect/token"),
     {
       method: "POST",
+      redirect: "error",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
