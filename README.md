@@ -142,7 +142,7 @@ a template, replace its placeholders, and run `docker compose up -d`.
 Release images for Linux AMD64 and ARM64 are published privately to the
 [container package](https://github.com/orgs/Serviceware/packages/container/package/cloud-connector).
 Pulling requires GHCR authentication and package read access. The `latest` tag
-points to the most recently promoted release. For repeatable production
+points to the most recently published release. For repeatable production
 rollouts, deploy the image digest that you validated.
 
 Builds from `main` are also published as `dev` and `sha-<full-commit-sha>` for

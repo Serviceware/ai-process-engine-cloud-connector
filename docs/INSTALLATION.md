@@ -21,7 +21,7 @@ docker pull ghcr.io/serviceware/cloud-connector:1.0.0
 For production, provide equivalent registry credentials through the
 orchestrator's secret mechanism; do not commit them to deployment manifests.
 
-The `latest` tag points to the most recently promoted release. For repeatable
+The `latest` tag points to the most recently published release. For repeatable
 rollouts, resolve it once and deploy the validated image digest.
 
 Configure the workload with:

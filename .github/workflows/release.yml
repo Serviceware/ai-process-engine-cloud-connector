@@ -80,7 +80,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           flavor: |
-            latest=false
+            latest=true
           tags: |
             type=raw,value=${{ steps.version.outputs.value }}
             type=raw,value=${{ steps.version.outputs.minor }}
@@ -111,11 +111,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           for attempt in {1..12}; do
-            if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}:${VERSION}")"; then
+            if manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}:${VERSION}")" &&
+              latest_manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}:latest")" &&
+              [[ "${manifest}" == "${latest_manifest}" ]]; then
               break
             fi
             if [[ "${attempt}" == "12" ]]; then
-              echo "Published image is not readable with the workflow's GHCR credentials." >&2
+              echo "Published version and latest tags are not readable as the same image." >&2
               exit 1
             fi
             sleep 5
@@ -131,6 +133,7 @@ jobs:
           [[ "${platforms}" == '["linux/amd64","linux/arm64"]' ]]
 
           docker pull "${IMAGE_NAME}:${VERSION}"
+          docker pull "${IMAGE_NAME}:latest"
 
       - name: Start published Cloud Connector image
         run: |
@@ -177,6 +180,7 @@ jobs:
           echo >> "${GITHUB_STEP_SUMMARY}"
           echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
           echo "docker pull ${IMAGE_NAME}:${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "docker pull ${IMAGE_NAME}:latest" >> "${GITHUB_STEP_SUMMARY}"
           echo '```' >> "${GITHUB_STEP_SUMMARY}"
           echo "GHCR authentication and package read access are required." >> "${GITHUB_STEP_SUMMARY}"
           echo >> "${GITHUB_STEP_SUMMARY}"

@@ -37,18 +37,18 @@ version in both maintained Compose examples.
 After merging the release pull request, start the workflow manually again. This
 creates `vX.Y.Z` and invokes the verified container publisher for
 `ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux AMD64 and ARM64. It also
-updates the moving `X.Y` and `X` tags, attaches SBOM and provenance data, checks
-the published manifest, and pulls the private image with the workflow's GHCR
-credentials. The GitHub Release is created only after these checks pass. The
-image is available only to accounts with package read access; no anonymous pull
-is supported.
+updates the moving `X.Y`, `X`, and `latest` tags, attaches SBOM and provenance
+data, checks the published manifests, and pulls the private image with the
+workflow's GHCR credentials. The GitHub Release is created only after these
+checks pass. The image is available only to accounts with package read access;
+no anonymous pull is supported.
 
 The repository setting **Actions > General > Allow GitHub Actions to create and
 approve pull requests** must be enabled. The first workflow publication creates
 and links the private `cloud-connector` package through `GITHUB_TOKEN` and its
 OCI source label. The linked repository needs package access for the workflow's
-authenticated verification. Promote the moving `latest` tag only after the
-release has been approved.
+authenticated verification. Use the separate **Promote release to latest**
+workflow only when repointing `latest` to an already published version.
 
 ## Development images
 
