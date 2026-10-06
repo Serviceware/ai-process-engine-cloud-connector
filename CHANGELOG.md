@@ -8,7 +8,8 @@ documented in this file. Releases follow
 
 ### Fixed
 
-- Use the authentication issuer returned by the Cloud context without comparing it to the Cloud Connector host or a fixed identity-provider domain.
+- Use the authentication issuer returned by the Cloud context without comparing
+  it to the Cloud Connector host or a fixed identity-provider domain.
 
 ## 1.0.1 - 2026-09-28
 
