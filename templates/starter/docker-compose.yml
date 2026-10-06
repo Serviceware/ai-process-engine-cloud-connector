@@ -14,7 +14,7 @@
 
 services:
   cloud-connector:
-    image: ghcr.io/serviceware/cloud-connector:1.0.1
+    image: ghcr.io/serviceware/cloud-connector:1.0.2
     container_name: serviceware-cloud-connector
     restart: always
     ports:
