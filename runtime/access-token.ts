@@ -57,16 +57,12 @@ export async function generateAccessToken(
       "Authentication endpoint not found in well-known configuration.",
     );
   }
-  const configuredOrigin = new URL(options.host).origin;
   const issuer = new URL(authEndpoint);
-  const trustedSsoIssuer = issuer.protocol === "https:" &&
-    issuer.hostname === "sso.swop.cloud" && issuer.port === "";
   if (
-    issuer.username || issuer.password || issuer.search || issuer.hash ||
-    (issuer.origin !== configuredOrigin && !trustedSsoIssuer)
+    issuer.username || issuer.password || issuer.search || issuer.hash
   ) {
     throw new Error(
-      `Authentication issuer ${issuer.origin} is not allowed for Cloud Connector host origin ${configuredOrigin}.`,
+      "Authentication issuer must not contain credentials, query parameters, or a fragment.",
     );
   }
 

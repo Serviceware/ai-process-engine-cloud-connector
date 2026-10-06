@@ -94,7 +94,7 @@ Deno.test("generateAccessToken rejects token responses without access token", as
   }
 });
 
-Deno.test("generateAccessToken accepts the Serviceware SSO issuer", async () => {
+Deno.test("generateAccessToken accepts the issuer returned by the Cloud context", async () => {
   const calls: string[] = [];
   const accessToken = await generateAccessToken({
     host: "https://cloud.example/",
@@ -105,7 +105,9 @@ Deno.test("generateAccessToken accepts the Serviceware SSO issuer", async () => 
       calls.push(url);
       if (url === "https://cloud.example/.well-known") {
         return Promise.resolve(Response.json({
-          auth: { issuer: "https://sso.swop.cloud/realms/serviceware" },
+          auth: {
+            issuer: "https://identity.customer.example/realms/serviceware",
+          },
         }));
       }
       return Promise.resolve(Response.json({ access_token: "access-token" }));
@@ -115,19 +117,16 @@ Deno.test("generateAccessToken accepts the Serviceware SSO issuer", async () => 
   assertEquals(accessToken, "access-token");
   assertEquals(calls, [
     "https://cloud.example/.well-known",
-    "https://sso.swop.cloud/realms/serviceware/protocol/openid-connect/token",
+    "https://identity.customer.example/realms/serviceware/protocol/openid-connect/token",
   ]);
 });
 
-Deno.test("generateAccessToken rejects untrusted issuers before sending credentials", async () => {
+Deno.test("generateAccessToken rejects malformed issuer URLs before sending credentials", async () => {
   for (
     const issuer of [
-      "https://attacker.example/realms/serviceware",
-      "https://sso.swop.cloud.evil.example/realms/serviceware",
-      "http://sso.swop.cloud/realms/serviceware",
-      "https://sso.swop.cloud:8443/realms/serviceware",
       "https://user:password@sso.swop.cloud/realms/serviceware",
       "https://sso.swop.cloud/realms/serviceware?next=attacker",
+      "https://sso.swop.cloud/realms/serviceware#fragment",
     ]
   ) {
     let calls = 0;
@@ -143,7 +142,7 @@ Deno.test("generateAccessToken rejects untrusted issuers before sending credenti
           },
         }),
       Error,
-      "is not allowed for Cloud Connector host origin",
+      "must not contain credentials, query parameters, or a fragment",
     );
     assertEquals(calls, 1);
   }
