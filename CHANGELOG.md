@@ -4,6 +4,12 @@ All notable changes to the Serviceware AI Process Engine - Cloud Connector are
 documented in this file. Releases follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.0.2 - 2026-10-06
+
+### Fixed
+
+- Use the authentication issuer returned by the Cloud context without comparing it to the Cloud Connector host or a fixed identity-provider domain.
+
 ## 1.0.1 - 2026-09-28
 
 ### Fixed
