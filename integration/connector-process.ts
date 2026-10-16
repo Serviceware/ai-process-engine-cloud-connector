@@ -4,6 +4,8 @@ import { waitFor } from "./wait.ts";
 const repositoryRoot = fromFileUrl(new URL("..", import.meta.url));
 const probeUrl = "http://127.0.0.1:8080";
 const readinessTimeoutMs = 20_000;
+const exitTimeoutMs = 20_000;
+const proxyVariable = /^(?:https?|all|no)_proxy$/i;
 
 export type ConnectorExit = {
   code: number;
@@ -98,28 +100,41 @@ export class ConnectorProcess {
   }
 
   async stop(signal: Deno.Signal = "SIGTERM"): Promise<ConnectorExit> {
-    if (this.running) this.child.kill(signal);
+    this.kill(signal);
+    return await this.waitForExit();
+  }
+
+  async waitForExit(): Promise<ConnectorExit> {
+    await waitFor(
+      () => this.running ? undefined : true,
+      "Cloud Connector exit",
+      exitTimeoutMs,
+    );
     return await this.exited;
   }
 
   async close(): Promise<void> {
-    if (this.running) {
-      try {
-        this.child.kill("SIGKILL");
-      } catch {
-        // Exited between the check and the kill.
-      }
-    }
+    this.kill("SIGKILL");
     await this.exited;
     await Deno.remove(this.directory, { recursive: true });
   }
+
+  private kill(signal: Deno.Signal): void {
+    if (!this.running) return;
+    try {
+      this.child.kill(signal);
+    } catch (error) {
+      // Exited between the check and the kill.
+      if (!(error instanceof TypeError)) throw error;
+    }
+  }
 }
 
-/** Keeps toolchain variables but never leaks ambient connector settings. */
+/** Keeps toolchain variables but never leaks connector or proxy settings. */
 function inheritedEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(Deno.env.toObject()).filter(([name]) =>
-      !name.startsWith("CLOUD_CONNECTOR_")
+      !name.startsWith("CLOUD_CONNECTOR_") && !proxyVariable.test(name)
     ),
   );
 }

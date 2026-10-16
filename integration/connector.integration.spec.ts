@@ -20,20 +20,33 @@ type FixtureOptions = {
   waitUntilReady?: boolean;
 };
 
-function connectorConfig(target: StubTarget, path = "api"): string {
+type ConfigOptions = {
+  path?: string;
+  heartbeatIntervalSeconds?: number;
+  auth?: boolean;
+};
+
+function connectorConfig(
+  target: StubTarget,
+  { path = "api", heartbeatIntervalSeconds = 1, auth = true }: ConfigOptions =
+    {},
+): string {
+  const authConfig = auth
+    ? `
+      auth:
+        type: bearer
+        token: "{{ env.TARGET_API_TOKEN }}"`
+    : "";
   return `
 connection:
   purpose: integration
-  heartbeatIntervalSeconds: 1
+  heartbeatIntervalSeconds: ${heartbeatIntervalSeconds}
 logging:
   level: debug
 forwarding:
   - target: '^${escapeRegExp(target.url)}/${path}(?:[/?].*)?$'
     methods: [GET, POST]
-    request:
-      auth:
-        type: bearer
-        token: "{{ env.TARGET_API_TOKEN }}"
+    request:${authConfig}
       headers:
         add:
           x-request-id: "{{ context.requestId }}"
@@ -49,33 +62,40 @@ async function withConnector(
   test: (fixture: Fixture) => Promise<void>,
 ): Promise<void> {
   const engine = StubAiProcessEngine.start({ clientId, clientSecret });
-  const target = StubTarget.start(options.target);
-  const connector = await ConnectorProcess.start({
-    env: {
-      CLOUD_CONNECTOR_HOST: engine.url,
-      CLOUD_CONNECTOR_CLIENT_ID: clientId,
-      CLOUD_CONNECTOR_CLIENT_SECRET: clientSecret,
-      CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0",
-      CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "1",
-      CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "1",
-      CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: "0",
-      CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "5",
-      TARGET_API_TOKEN: targetToken,
-    },
-    config: (options.config ?? connectorConfig)(target),
-  });
   try {
-    if (options.waitUntilReady ?? true) await connector.waitUntilReady();
-    await test({ engine, target, connector });
-  } catch (error) {
-    const { output } = await connector.stop("SIGKILL");
-    throw new Error(`${error}\n--- Cloud Connector output ---\n${output}`, {
-      cause: error,
-    });
+    const target = StubTarget.start(options.target);
+    try {
+      const connector = await ConnectorProcess.start({
+        env: {
+          CLOUD_CONNECTOR_HOST: engine.url,
+          CLOUD_CONNECTOR_CLIENT_ID: clientId,
+          CLOUD_CONNECTOR_CLIENT_SECRET: clientSecret,
+          CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0",
+          CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS: "1",
+          CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS: "1",
+          CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: "0",
+          CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "5",
+          TARGET_API_TOKEN: targetToken,
+        },
+        config: (options.config ?? connectorConfig)(target),
+      });
+      try {
+        if (options.waitUntilReady ?? true) await connector.waitUntilReady();
+        await test({ engine, target, connector });
+      } catch (error) {
+        const { output } = await connector.stop("SIGKILL");
+        throw new Error(
+          `${error}\n--- Cloud Connector output ---\n${output}`,
+          { cause: error },
+        );
+      } finally {
+        await connector.close();
+      }
+    } finally {
+      await target.close();
+    }
   } finally {
-    await connector.close();
     await engine.close();
-    await target.close();
   }
 }
 
@@ -89,7 +109,8 @@ Deno.test("connects with client credentials and reports readiness", async () => 
       clientSecret,
     }]);
     assertEquals(connection.purpose, "integration");
-    assertEquals(connection.authorization, `Bearer ${engine.accessToken}`);
+    assertEquals(engine.issuedTokens.length, 1);
+    assertEquals(connection.authorization, `Bearer ${engine.issuedTokens[0]}`);
 
     const ready = await connector.ready();
     assertEquals(ready.status, 200);
@@ -143,9 +164,42 @@ Deno.test("forwards an allowed request and returns the target response", async (
   });
 });
 
-Deno.test("serves concurrent requests over one connection", async () => {
+Deno.test("strips caller credentials when the rule configures no auth", async () => {
   await withConnector({
-    target: ({ url }) => new Response(url.searchParams.get("n")),
+    config: (target) => connectorConfig(target, { auth: false }),
+  }, async ({ engine, target }) => {
+    const connection = await engine.connection(0);
+
+    const frame = await connection.request({
+      method: "GET",
+      url: `${target.url}/api/tickets`,
+      headers: {
+        authorization: ["Bearer caller-credential"],
+        cookie: ["session=caller"],
+      },
+    });
+
+    assertEquals(frame.response?.statusCode, 200);
+    const [forwarded] = target.requests;
+    assertEquals(forwarded.headers.get("authorization"), null);
+    assertEquals(forwarded.headers.get("cookie"), null);
+  });
+});
+
+Deno.test("serves concurrent requests over one connection", async () => {
+  const concurrency = 5;
+  let arrived = 0;
+  let releaseTargets!: () => void;
+  const allArrived = new Promise<void>((resolve) => {
+    releaseTargets = resolve;
+  });
+  await withConnector({
+    target: async ({ url }) => {
+      arrived += 1;
+      if (arrived === concurrency) releaseTargets();
+      await allArrived;
+      return new Response(url.searchParams.get("n"));
+    },
   }, async ({ engine, target }) => {
     const connection = await engine.connection(0);
 
@@ -228,23 +282,54 @@ Deno.test("reports unreachable targets as protocol errors", async () => {
   });
 });
 
-Deno.test("answers heartbeats and sends its own", async () => {
+Deno.test("sends periodic heartbeats", async () => {
   await withConnector({}, async ({ engine }) => {
     const connection = await engine.connection(0);
-    const heartbeat = await connection.waitForFrame(
-      (frame) => frame.type === "heartbeat",
-      "connector heartbeat",
-    );
-    assertEquals(typeof heartbeat.sentAt, "string");
+    const heartbeats = () =>
+      connection.frames.filter((frame) => frame.type === "heartbeat");
 
+    await waitFor(
+      () => heartbeats().length >= 2 || undefined,
+      "two connector heartbeats",
+    );
+    assertEquals(typeof heartbeats()[0].sentAt, "string");
+  });
+});
+
+Deno.test("answers heartbeats from the engine", async () => {
+  await withConnector({
+    config: (target) =>
+      connectorConfig(target, { heartbeatIntervalSeconds: 60 }),
+  }, async ({ engine }) => {
+    const connection = await engine.connection(0);
     const before = connection.frames.length;
+
     connection.send(JSON.stringify({ type: "heartbeat" }));
+
     await connection.waitForFrame(
       (frame) =>
         frame.type === "heartbeat" &&
         connection.frames.indexOf(frame) >= before,
       "heartbeat answer",
     );
+  });
+});
+
+Deno.test("reports not ready while the engine connection is down", async () => {
+  await withConnector({}, async ({ engine, connector }) => {
+    const connection = await engine.connection(0);
+    engine.acceptConnections = false;
+    connection.close();
+    await connection.closed;
+
+    const notReady = await waitFor(async () => {
+      const ready = await connector.ready();
+      return ready.status === 503 ? ready : undefined;
+    }, "readiness 503");
+    assertEquals(notReady.body.status, "not_ready");
+
+    engine.acceptConnections = true;
+    await connector.waitUntilReady();
   });
 });
 
@@ -281,7 +366,8 @@ Deno.test("reconnects with a fresh token after the engine closes the connection"
 
     const second = await engine.connection(1);
     assertEquals(engine.tokenRequests.length, 2);
-    assertEquals(second.authorization, `Bearer ${engine.accessToken}`);
+    assertEquals(first.authorization, `Bearer ${engine.issuedTokens[0]}`);
+    assertEquals(second.authorization, `Bearer ${engine.issuedTokens[1]}`);
 
     const frame = await second.request({
       method: "GET",
@@ -303,7 +389,7 @@ Deno.test("hot-reloads forwarding rules and keeps the last valid configuration",
       "OUTBOUND_URL_NOT_ALLOWED",
     );
 
-    await connector.writeConfig(connectorConfig(target, "v2"));
+    await connector.writeConfig(connectorConfig(target, { path: "v2" }));
     await waitForReload(connector, true);
     assertEquals((await request("v2/tickets")).response?.statusCode, 200);
     assertEquals(
@@ -360,7 +446,7 @@ Deno.test("exits with EX_CONFIG for an invalid configuration", async () => {
     config: () => "connection:\n  purpose: integration\nforwarding: []\n",
     waitUntilReady: false,
   }, async ({ engine, connector }) => {
-    const { code, output } = await connector.exited;
+    const { code, output } = await connector.waitForExit();
 
     assertEquals(code, 78);
     assertMatch(
@@ -369,6 +455,36 @@ Deno.test("exits with EX_CONFIG for an invalid configuration", async () => {
     );
     assertEquals(engine.tokenRequests.length, 0);
   });
+});
+
+Deno.test({
+  name: "exits cleanly on SIGINT",
+  // Windows cannot deliver SIGINT to a child process.
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    await withConnector({}, async ({ engine, connector }) => {
+      const connection = await engine.connection(0);
+
+      const { code } = await connector.stop("SIGINT");
+
+      assertEquals(code, 0);
+      await connection.closed;
+    });
+  },
+});
+
+Deno.test("exits with EX_OSERR when the probe port is taken", async () => {
+  const blocker = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
+  try {
+    await withConnector({ waitUntilReady: false }, async ({ connector }) => {
+      const { code, output } = await connector.waitForExit();
+
+      assertEquals(code, 71);
+      assertMatch(output, /FATAL: cannot bind HTTP server/);
+    });
+  } finally {
+    blocker.close();
+  }
 });
 
 async function waitForReload(

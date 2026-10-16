@@ -27,7 +27,8 @@ deno task test:integration
 ```
 
 The connector binds its fixed probe port `8080`, so the integration tests run
-sequentially and need that port free. The SIGTERM test is skipped on Windows.
+sequentially and need that port free. The SIGTERM and SIGINT tests are skipped
+on Windows.
 
 ## Required verification
 

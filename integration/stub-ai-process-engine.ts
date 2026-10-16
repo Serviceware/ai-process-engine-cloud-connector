@@ -74,7 +74,8 @@ export class StubConnection {
 export class StubAiProcessEngine {
   readonly tokenRequests: TokenRequest[] = [];
   readonly connections: StubConnection[] = [];
-  readonly accessToken = `stub-token-${crypto.randomUUID()}`;
+  readonly issuedTokens: string[] = [];
+  acceptConnections = true;
   private readonly options: StubAiProcessEngineOptions;
   private readonly server: Deno.HttpServer<Deno.NetAddr>;
 
@@ -138,8 +139,10 @@ export class StubAiProcessEngine {
       ) {
         return Response.json({ error: "invalid_client" }, { status: 401 });
       }
+      const accessToken = `stub-token-${crypto.randomUUID()}`;
+      this.issuedTokens.push(accessToken);
       return Response.json({
-        access_token: this.accessToken,
+        access_token: accessToken,
         token_type: "Bearer",
         expires_in: 300,
       });
@@ -149,8 +152,11 @@ export class StubAiProcessEngine {
       /^\/configuration-store\/api\/v1\/connector\/([^/]+)\/connect$/,
     );
     if (connect && request.headers.get("upgrade") === "websocket") {
+      if (!this.acceptConnections) {
+        return new Response("Unavailable", { status: 503 });
+      }
       const authorization = request.headers.get("authorization");
-      if (authorization !== `Bearer ${this.accessToken}`) {
+      if (authorization !== `Bearer ${this.issuedTokens.at(-1)}`) {
         return new Response("Unauthorized", { status: 401 });
       }
       const { socket, response } = Deno.upgradeWebSocket(request);
