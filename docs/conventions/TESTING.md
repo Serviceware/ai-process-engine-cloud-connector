@@ -31,6 +31,25 @@ sequentially and need that port free. Behind an HTTP proxy, add `127.0.0.1` to
 `NO_PROXY` so the test runner reaches the connector probes directly. The SIGTERM
 and SIGINT tests are skipped on Windows.
 
+### Against the container image
+
+With `INTEGRATION_TEST_IMAGE` set, the same specs run the image instead of
+`runtime/main.ts`, the way customers do: `docker run --network host`, the
+temporary directory mounted read-only at `/config`, the image's own command,
+and signals sent through `docker kill`. Exit codes come from the container.
+The CI `container` job runs this mode against the image it builds.
+
+```bash
+docker build --tag cloud-connector:local .
+INTEGRATION_TEST_IMAGE=cloud-connector:local pnpm run test:integration
+```
+
+This mode needs Linux and a Docker daemon that shares the test's network and
+filesystem: the stubs listen on `127.0.0.1`, and the daemon mounts the
+temporary directory by its path. In a container with the Docker socket, run with
+`--network host` and mount the temporary directory at the same path on both
+sides, for example `-v /tmp/it:/tmp/it -e TMPDIR=/tmp/it`.
+
 ## Required verification
 
 Run the smallest relevant checks while developing. Before completing a change,
@@ -51,8 +70,8 @@ docker compose --file templates/examples/ticketing-yaml/docker-compose.yml confi
 ```
 
 When the Dockerfile, runtime permissions, startup configuration, or health
-behavior changes, build the image and perform a container smoke test equivalent
-to the CI workflow.
+behavior changes, build the image, run the integration tests against it, and
+perform a container smoke test equivalent to the CI workflow.
 
 Do not update assertions only to make a failing test pass. Confirm whether the
 implementation or the documented contract is wrong first.
