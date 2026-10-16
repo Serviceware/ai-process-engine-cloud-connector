@@ -50,6 +50,16 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
+      # Dependabot bumps the Dockerfile but not .node-version.
+      - name: Check Node.js version matches the container image
+        run: |
+          image="$(sed -n 's/^FROM node:\([0-9][0-9.]*\)-.*/\1/p' Dockerfile)"
+          pinned="$(tr -d '[:space:]' < .node-version)"
+          if [[ -z "${image}" || "${image}" != "${pinned}" ]]; then
+            echo "::error file=.node-version::.node-version is '${pinned}' but the Dockerfile uses node:${image:-<none>}; set both to the same version."
+            exit 1
+          fi
+
       - name: Check formatting
         run: pnpm run fmt:check
 
