@@ -19,11 +19,9 @@ test("createHttpDispatcher forwards plain HTTP to HTTP_PROXY in absolute form", 
   await once(proxy, "listening");
   try {
     const { port } = proxy.address() as AddressInfo;
-    // undici reads the lowercase names first.
-    for (const name of ["HTTP_PROXY", "http_proxy"]) {
-      vi.stubEnv(name, `http://127.0.0.1:${port}`);
-    }
-    for (const name of ["NO_PROXY", "no_proxy"]) vi.stubEnv(name, "");
+    // undici prefers the lowercase names. Stubbing both breaks restoring them on Windows, where names ignore case.
+    vi.stubEnv("http_proxy", `http://127.0.0.1:${port}`);
+    vi.stubEnv("no_proxy", "");
     const dispatcher = createHttpDispatcher();
 
     const response = await fetch("http://internal.example/items", {
