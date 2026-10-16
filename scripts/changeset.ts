@@ -94,7 +94,7 @@ async function readChangesets(paths: string[]): Promise<Changeset[]> {
 
 async function addChangeset(args: string[]): Promise<void> {
   const empty = args.includes("--empty");
-  let content = "---\n---\n";
+  let content = "---\n\n---\n";
 
   if (!empty) {
     const readline = createInterface({
