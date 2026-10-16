@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fetch } from "undici";
 import { afterEach, expect, test, vi } from "vitest";
-import { createHttpDispatcher, httpDispatcherOptions } from "./http-dispatcher.ts";
+import { createHttpDispatcher, httpDispatcherOptions, recordFailure } from "./http-dispatcher.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -44,4 +44,40 @@ test("httpDispatcherOptions lift the connect limit for every hop", () => {
     requestTls: { timeout: 0 },
     proxyTunnel: false,
   });
+});
+
+async function webSocketFailure(url: string): Promise<string | undefined> {
+  let failure: string | undefined;
+  const socket = new WebSocket(url, {
+    dispatcher: createHttpDispatcher().compose(recordFailure((reason) => (failure = reason))),
+  });
+  await once(socket, "error");
+  return failure;
+}
+
+test("recordFailure reports the status of a rejected WebSocket upgrade", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(401).end();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const { port } = server.address() as AddressInfo;
+    expect(await webSocketFailure(`ws://127.0.0.1:${port}/socket`)).toStrictEqual("HTTP 401 Unauthorized");
+  } finally {
+    server.close();
+  }
+});
+
+test("recordFailure reports the network error of a WebSocket that cannot connect", async () => {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  server.close();
+  await once(server, "close");
+
+  expect(await webSocketFailure(`ws://127.0.0.1:${port}/socket`)).toStrictEqual(
+    `connect ECONNREFUSED 127.0.0.1:${port} (ECONNREFUSED)`,
+  );
 });

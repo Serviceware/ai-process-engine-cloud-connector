@@ -1,4 +1,5 @@
 import { type Dispatcher, EnvHttpProxyAgent } from "undici";
+import { describeError } from "./runtime-error.ts";
 
 const noConnectLimit = { timeout: 0 };
 
@@ -19,3 +20,34 @@ export const httpDispatcherOptions = {
   requestTls: noConnectLimit,
   proxyTunnel: false,
 };
+
+/**
+ * Reports why a request failed: the network error or a status that is not a
+ * WebSocket upgrade. Node's WebSocket drops both and fires an empty error event.
+ * Only the first reason counts; the abort that follows a rejected upgrade does not.
+ */
+export function recordFailure(record: (reason: string) => void): Dispatcher.DispatcherComposeInterceptor {
+  return (dispatch) => (options, handler) => {
+    let reported = false;
+    const report = (reason: string) => {
+      if (reported) return;
+      reported = true;
+      record(reason);
+    };
+    return dispatch(options, {
+      onRequestStart: (controller, context) => handler.onRequestStart?.(controller, context),
+      onRequestUpgrade: (controller, statusCode, headers, socket) =>
+        handler.onRequestUpgrade?.(controller, statusCode, headers, socket),
+      onResponseStart: (controller, statusCode, headers, statusMessage) => {
+        report(`HTTP ${statusCode}${statusMessage ? ` ${statusMessage}` : ""}`);
+        handler.onResponseStart?.(controller, statusCode, headers, statusMessage);
+      },
+      onResponseData: (controller, chunk) => handler.onResponseData?.(controller, chunk),
+      onResponseEnd: (controller, trailers) => handler.onResponseEnd?.(controller, trailers),
+      onResponseError: (controller, error) => {
+        report(describeError(error));
+        handler.onResponseError?.(controller, error);
+      },
+    });
+  };
+}

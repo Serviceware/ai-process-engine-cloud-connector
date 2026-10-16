@@ -28,17 +28,17 @@ export class ConnectorProcess {
   private readonly directory: string;
   private readonly child: ChildProcess;
   private running = true;
+  private output = "";
 
   private constructor(directory: string, configPath: string, child: ChildProcess) {
     this.directory = directory;
     this.configPath = configPath;
     this.child = child;
-    let output = "";
-    child.stdout?.setEncoding("utf8").on("data", (chunk) => (output += chunk));
-    child.stderr?.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+    child.stdout?.setEncoding("utf8").on("data", (chunk) => (this.output += chunk));
+    child.stderr?.setEncoding("utf8").on("data", (chunk) => (this.output += chunk));
     this.exited = once(child, "close").then(([code]) => {
       this.running = false;
-      return { code: code as number | null, output };
+      return { code: code as number | null, output: this.output };
     });
   }
 
@@ -95,6 +95,14 @@ export class ConnectorProcess {
       },
       "Cloud Connector readiness",
       readinessTimeoutMs,
+    );
+  }
+
+  async waitForOutput(text: string): Promise<void> {
+    await waitFor(() => (this.output.includes(text) ? true : undefined), `Cloud Connector output "${text}"`).catch(
+      (error: unknown) => {
+        throw new Error(`${String(error)}\nOutput so far:\n${this.output}`, { cause: error });
+      },
     );
   }
 

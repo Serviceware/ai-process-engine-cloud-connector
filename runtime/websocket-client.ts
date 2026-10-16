@@ -1,7 +1,9 @@
+import { getGlobalDispatcher } from "undici";
 import { type AccessTokenOptions, generateAccessToken } from "./access-token.ts";
 import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
 import type { WebSocketAttachment } from "./connector.ts";
+import { recordFailure } from "./http-dispatcher.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
@@ -173,10 +175,12 @@ async function openWebSocket(
       return;
     }
 
+    let failure: string | undefined;
     const socket = new WebSocket(config.websocketUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      dispatcher: getGlobalDispatcher().compose(recordFailure((reason) => (failure = reason))),
     });
     const attachment: WebSocketAttachment = runtime.attachWebSocket(socket);
 
@@ -312,7 +316,7 @@ async function openWebSocket(
     socket.addEventListener("error", (event) => {
       if (!opened) {
         fail(
-          new Error("Unable to open Cloud Connector WebSocket", {
+          new Error(`Unable to open Cloud Connector WebSocket${failure ? `: ${failure}` : ""}`, {
             cause: event,
           }),
         );

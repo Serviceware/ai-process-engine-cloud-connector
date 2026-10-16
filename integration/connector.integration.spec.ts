@@ -330,6 +330,7 @@ test("reports not ready while the engine connection is down", async () => {
       return ready.status === 503 ? ready : undefined;
     }, "readiness 503");
     expect(notReady.body.status).toStrictEqual("not_ready");
+    await connector.waitForOutput("Unable to open Cloud Connector WebSocket: HTTP 503 Service Unavailable");
 
     engine.acceptConnections = true;
     await connector.waitUntilReady();

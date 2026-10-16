@@ -13,5 +13,4 @@ and `NO_PROXY` still apply; `HTTP_PROXY` now also covers HTTPS targets when
 `HTTPS_PROXY` is unset, and `NO_PROXY` does not accept CIDR ranges.
 
 URLs with embedded credentials are no longer accepted for
-`CLOUD_CONNECTOR_HOST` or OAuth2 issuers. When the WebSocket connection cannot
-be opened, the log no longer names the network reason.
+`CLOUD_CONNECTOR_HOST` or OAuth2 issuers.
