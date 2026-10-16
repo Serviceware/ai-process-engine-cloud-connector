@@ -18,13 +18,25 @@ export type ActivateConfig = (
  * runtime state untouched.
  */
 export class ConfigReloader {
+  private readonly path: string;
+  private readonly environment: EnvironmentConfig;
+  private readonly activate: ActivateConfig;
+  private readonly logger: RuntimeLogger;
+  private readonly status?: RuntimeStatus;
+
   constructor(
-    private readonly path: string,
-    private readonly environment: EnvironmentConfig,
-    private readonly activate: ActivateConfig,
-    private readonly logger: RuntimeLogger,
-    private readonly status?: RuntimeStatus,
-  ) {}
+    path: string,
+    environment: EnvironmentConfig,
+    activate: ActivateConfig,
+    logger: RuntimeLogger,
+    status?: RuntimeStatus,
+  ) {
+    this.path = path;
+    this.environment = environment;
+    this.activate = activate;
+    this.logger = logger;
+    this.status = status;
+  }
 
   async reload(): Promise<boolean> {
     try {

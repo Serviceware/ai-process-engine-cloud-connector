@@ -23,14 +23,25 @@ type OpenOutcome = {
  */
 export class ReloadableWebSocketClient {
   private generationAbort?: AbortController;
+  private config: ConnectorConfig;
+  private readonly runtime: ConnectorRuntime;
+  private readonly status: RuntimeStatus;
+  private readonly logger: RuntimeLogger;
+  private readonly controlPlaneFetch: Fetcher;
 
   constructor(
-    private config: ConnectorConfig,
-    private readonly runtime: ConnectorRuntime,
-    private readonly status: RuntimeStatus,
-    private readonly logger: RuntimeLogger,
-    private readonly controlPlaneFetch: Fetcher = globalThis.fetch,
-  ) {}
+    config: ConnectorConfig,
+    runtime: ConnectorRuntime,
+    status: RuntimeStatus,
+    logger: RuntimeLogger,
+    controlPlaneFetch: Fetcher = globalThis.fetch,
+  ) {
+    this.config = config;
+    this.runtime = runtime;
+    this.status = status;
+    this.logger = logger;
+    this.controlPlaneFetch = controlPlaneFetch;
+  }
 
   replace(config: ConnectorConfig): void {
     const connectionChanged =

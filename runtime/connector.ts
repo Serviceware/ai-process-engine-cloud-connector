@@ -33,7 +33,11 @@ export interface ProtocolExecutor {
  * all subsequent requests to a newly validated YAML configuration.
  */
 export class ReloadableProtocolExecutor implements ProtocolExecutor {
-  constructor(private current: ProtocolExecutor) {}
+  private current: ProtocolExecutor;
+
+  constructor(current: ProtocolExecutor) {
+    this.current = current;
+  }
 
   replace(next: ProtocolExecutor): void {
     this.current = next;
@@ -60,10 +64,12 @@ export type WebSocketAttachment = {
 };
 
 export class ConnectorRuntime {
+  private readonly options: ConnectorRuntimeOptions;
   private readonly logger: RuntimeLogger;
   private readonly maximumConcurrentRequests: number;
 
-  constructor(private readonly options: ConnectorRuntimeOptions) {
+  constructor(options: ConnectorRuntimeOptions) {
+    this.options = options;
     this.logger = options.logger ?? createLogger();
     this.maximumConcurrentRequests = options.maximumConcurrentRequests ?? 100;
   }

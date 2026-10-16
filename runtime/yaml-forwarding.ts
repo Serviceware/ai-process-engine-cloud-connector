@@ -61,16 +61,34 @@ export function createOAuthTokenCache(): OAuthTokenCache {
  * taking precedence.
  */
 export class YamlForwardingExecutor implements ProtocolExecutor {
+  private readonly rules: readonly CompiledRule[];
+  private readonly configPath: string;
+  private readonly env: Record<string, string>;
+  private readonly logger: RuntimeLogger;
+  private readonly fetcher: Fetcher;
+  private readonly tokenFetcher: Fetcher;
+  private readonly oauthTokenCache: OAuthTokenCache;
+  private readonly maxResponseBodyBytes: number;
+
   private constructor(
-    private readonly rules: readonly CompiledRule[],
-    private readonly configPath: string,
-    private readonly env: Record<string, string>,
-    private readonly logger: RuntimeLogger,
-    private readonly fetcher: Fetcher,
-    private readonly tokenFetcher: Fetcher,
-    private readonly oauthTokenCache: OAuthTokenCache,
-    private readonly maxResponseBodyBytes: number,
-  ) {}
+    rules: readonly CompiledRule[],
+    configPath: string,
+    env: Record<string, string>,
+    logger: RuntimeLogger,
+    fetcher: Fetcher,
+    tokenFetcher: Fetcher,
+    oauthTokenCache: OAuthTokenCache,
+    maxResponseBodyBytes: number,
+  ) {
+    this.rules = rules;
+    this.configPath = configPath;
+    this.env = env;
+    this.logger = logger;
+    this.fetcher = fetcher;
+    this.tokenFetcher = tokenFetcher;
+    this.oauthTokenCache = oauthTokenCache;
+    this.maxResponseBodyBytes = maxResponseBodyBytes;
+  }
 
   static create(
     options: YamlForwardingExecutorOptions,
