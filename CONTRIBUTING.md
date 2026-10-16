@@ -12,18 +12,19 @@ Thank you for improving the Serviceware AI Process Engine - Cloud Connector.
 5. Run the repository checks.
 6. Open a pull request with a short explanation of the change and its impact.
 
-Use the Deno version from `.dvmrc`:
+Use the Node.js version from `.node-version`:
 
 ```bash
-deno task ci
+npm ci
+npm run ci
 ```
 
-Create a release Changeset with `deno task changeset`. Select `patch`, `minor`,
+Create a release Changeset with `npm run changeset`. Select `patch`, `minor`,
 or `major` and write a concise, user-facing summary. For documentation, tests,
 or internal tooling that should not change the released version, use:
 
 ```bash
-deno task changeset --empty
+npm run changeset -- --empty
 ```
 
 Please do not add credentials, generated build output, or unrelated

@@ -1,4 +1,5 @@
-import { parse as parseYaml } from "@std/yaml";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "yaml";
 import { defaultLogLevel, isLogLevel, type LogLevel } from "./logger.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
@@ -24,22 +25,22 @@ export type ResponseForwardingConfig = {
 
 export type AuthConfig =
   | {
-    type: "basic";
-    username: string;
-    password: string;
-  }
+      type: "basic";
+      username: string;
+      password: string;
+    }
   | {
-    type: "bearer";
-    token: string;
-  }
+      type: "bearer";
+      token: string;
+    }
   | {
-    type: "oauth2";
-    /** OAuth 2.0 token endpoint used for the client-credentials grant. */
-    issuer: string;
-    clientId: string;
-    clientSecret: string;
-    scope?: string;
-  };
+      type: "oauth2";
+      /** OAuth 2.0 token endpoint used for the client-credentials grant. */
+      issuer: string;
+      clientId: string;
+      clientSecret: string;
+      scope?: string;
+    };
 
 export type ForwardingConfig = {
   /** Regular expression matched against the complete requested target URL. */
@@ -125,7 +126,7 @@ const supportedMethods = new Set([
 ]);
 
 export function loadEnvironmentConfig(
-  env: Record<string, string | undefined> = Deno.env.toObject(),
+  env: Record<string, string | undefined> = process.env,
 ): EnvironmentConfig {
   return {
     cloudConnectorHost: readRequiredUrl(
@@ -141,46 +142,52 @@ export function loadEnvironmentConfig(
       env.CLOUD_CONNECTOR_CLIENT_SECRET,
       "CLOUD_CONNECTOR_CLIENT_SECRET",
     ),
-    reconnectInitialDelayMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,
-      defaultReconnectInitialSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS",
-    ) * 1000,
-    reconnectMaxDelayMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS,
-      defaultReconnectMaxSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS",
-    ) * 1000,
-    connectTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS,
-      defaultConnectTimeoutSeconds,
-      "CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS",
-    ) * 1000,
-    reconnectStableThresholdMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS,
-      defaultReconnectStableSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS",
-    ) * 1000,
+    reconnectInitialDelayMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,
+        defaultReconnectInitialSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS",
+      ) * 1000,
+    reconnectMaxDelayMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS,
+        defaultReconnectMaxSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS",
+      ) * 1000,
+    connectTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS,
+        defaultConnectTimeoutSeconds,
+        "CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS",
+      ) * 1000,
+    reconnectStableThresholdMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS,
+        defaultReconnectStableSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS",
+      ) * 1000,
     heartbeatTimeoutFactor: readNonNegativeInteger(
       env.CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR,
       defaultHeartbeatTimeoutFactor,
       "CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR",
     ),
-    tokenFetchTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS,
-      defaultTokenFetchTimeoutSeconds,
-      "CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS",
-    ) * 1000,
+    tokenFetchTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS,
+        defaultTokenFetchTimeoutSeconds,
+        "CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS",
+      ) * 1000,
     reconnectJitterRatio: readRatio(
       env.CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO,
       defaultReconnectJitterRatio,
       "CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO",
     ),
-    livenessStaleMs: readInteger(
-      env.CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS,
-      defaultLivenessStaleSeconds,
-      "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS",
-    ) * 1000,
+    livenessStaleMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS,
+        defaultLivenessStaleSeconds,
+        "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS",
+      ) * 1000,
     maxResponseBodyBytes: readInteger(
       env.CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES,
       defaultMaxResponseBodyBytes,
@@ -191,18 +198,19 @@ export function loadEnvironmentConfig(
       defaultMaxConcurrentRequests,
       "CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS",
     ),
-    drainTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS,
-      defaultDrainTimeoutSeconds,
-      "CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS",
-    ) * 1000,
+    drainTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS,
+        defaultDrainTimeoutSeconds,
+        "CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS",
+      ) * 1000,
   };
 }
 
 export async function loadVolumeConfig(path: string): Promise<VolumeConfig> {
   let content: string;
   try {
-    content = await Deno.readTextFile(path);
+    content = await readFile(path, "utf8");
   } catch (error) {
     throw new RuntimeError(
       "CONFIG_ERROR",
@@ -219,7 +227,7 @@ export function parseVolumeConfig(
 ): VolumeConfig {
   let value: unknown;
   try {
-    value = parseYaml(content);
+    value = parseYaml(content, { merge: true });
   } catch (error) {
     throw new RuntimeError(
       "YAML_PARSE_ERROR",
@@ -280,25 +288,24 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
     ["purpose", "heartbeatIntervalSeconds"],
     "connection",
   );
-  const purpose = connection.purpose === undefined
-    ? "main"
-    : requireTrimmedNonEmptyString(connection.purpose, "connection.purpose");
-  const heartbeatIntervalSeconds = connection.heartbeatIntervalSeconds ===
-      undefined
-    ? defaultHeartbeatSeconds
-    : requirePositiveInteger(
-      connection.heartbeatIntervalSeconds,
-      "connection.heartbeatIntervalSeconds",
-    );
+  const purpose =
+    connection.purpose === undefined
+      ? "main"
+      : requireTrimmedNonEmptyString(connection.purpose, "connection.purpose");
+  const heartbeatIntervalSeconds =
+    connection.heartbeatIntervalSeconds === undefined
+      ? defaultHeartbeatSeconds
+      : requirePositiveInteger(
+          connection.heartbeatIntervalSeconds,
+          "connection.heartbeatIntervalSeconds",
+        );
 
   let logLevel = defaultLogLevel;
   if (config.logging !== undefined) {
     const logging = requireRecord(config.logging, "logging");
     rejectUnknown(logging, ["level"], "logging");
     if (logging.level !== undefined) {
-      if (
-        typeof logging.level !== "string" || !isLogLevel(logging.level)
-      ) {
+      if (typeof logging.level !== "string" || !isLogLevel(logging.level)) {
         throw new Error(
           "logging.level must be one of: error, warn, info, debug",
         );
@@ -324,7 +331,7 @@ function validateAndNormalizeForwardingConfigs(
     throw new Error("forwarding must be a non-empty array of rules");
   }
   return value.map((entry, index) =>
-    validateAndNormalizeForwardingConfig(entry, `forwarding[${index}]`)
+    validateAndNormalizeForwardingConfig(entry, `forwarding[${index}]`),
   );
 }
 
@@ -335,13 +342,7 @@ function validateAndNormalizeForwardingConfig(
   const config = requireRecord(value, path);
   rejectUnknown(
     config,
-    [
-      "target",
-      "methods",
-      "request",
-      "response",
-      "timeout",
-    ],
+    ["target", "methods", "request", "response", "timeout"],
     path,
   );
   requireNonEmptyString(config.target, `${path}.target`);
@@ -368,8 +369,8 @@ function validateAndNormalizeForwardingConfig(
     if (
       !Array.isArray(config.methods) ||
       new Set(config.methods).size !== config.methods.length ||
-      config.methods.some((method) =>
-        typeof method !== "string" || !supportedMethods.has(method)
+      config.methods.some(
+        (method) => typeof method !== "string" || !supportedMethods.has(method),
       )
     ) {
       throw new Error(
@@ -380,7 +381,8 @@ function validateAndNormalizeForwardingConfig(
   if (
     config.timeout !== undefined &&
     (typeof config.timeout !== "number" ||
-      !Number.isInteger(config.timeout) || config.timeout < 1_000 ||
+      !Number.isInteger(config.timeout) ||
+      config.timeout < 1_000 ||
       config.timeout > 300_000)
   ) {
     throw new Error(
@@ -483,10 +485,8 @@ function validateAuthConfig(value: unknown, path: string): void {
 
 function validateAuthValue(value: unknown, path: string): void {
   requireNonEmptyString(value, path);
-  validateTemplateExpressions(
-    value,
-    path,
-    (expression) => /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
+  validateTemplateExpressions(value, path, (expression) =>
+    /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
   );
 }
 
@@ -527,9 +527,7 @@ export function deriveWebSocketUrl(
 ): string {
   const url = new URL(cloudConnectorHost);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `/configuration-store/api/v1/connector/${
-    encodeURIComponent(purpose)
-  }/connect`;
+  url.pathname = `/configuration-store/api/v1/connector/${encodeURIComponent(purpose)}/connect`;
   url.search = "";
   url.hash = "";
   return url.toString();
@@ -582,10 +580,12 @@ function validateLivenessWindow(
 /** Conservative guard against common exponential-backtracking expressions. */
 function hasUnsafeNestedQuantifier(pattern: string): boolean {
   type GroupState = { hasQuantifier: boolean; hasAlternation: boolean };
-  const groups: GroupState[] = [{
-    hasQuantifier: false,
-    hasAlternation: false,
-  }];
+  const groups: GroupState[] = [
+    {
+      hasQuantifier: false,
+      hasAlternation: false,
+    },
+  ];
   let escaped = false;
   let inCharacterClass = false;
   let previousGroup: GroupState | undefined;
@@ -645,7 +645,8 @@ function hasUnsafeNestedQuantifier(pattern: string): boolean {
     }
     if (isQuantifier) {
       if (
-        isUnbounded && previousGroup &&
+        isUnbounded &&
+        previousGroup &&
         (previousGroup.hasQuantifier || previousGroup.hasAlternation)
       ) {
         return true;

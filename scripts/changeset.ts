@@ -1,3 +1,9 @@
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
+import { promisify } from "node:util";
+
 export type Bump = "patch" | "minor" | "major";
 
 export type Changeset = {
@@ -14,9 +20,7 @@ const releaseOrder: Record<Bump, number> = {
 };
 
 export function parseChangeset(content: string, path = "changeset"): Changeset {
-  const match = content.match(
-    /^---\r?\n([\s\S]*?)---(?:\r?\n([\s\S]*))?$/,
-  );
+  const match = content.match(/^---\r?\n([\s\S]*?)---(?:\r?\n([\s\S]*))?$/);
   if (!match) {
     throw new Error(`${path} must contain YAML-style front matter`);
   }
@@ -67,9 +71,12 @@ export function bumpVersion(version: string, bump: Bump): string {
 
 async function listChangesetPaths(): Promise<string[]> {
   const paths: string[] = [];
-  for await (const entry of Deno.readDir(changesetDirectory)) {
+  const entries = await readdir(changesetDirectory, { withFileTypes: true });
+  for (const entry of entries) {
     if (
-      entry.isFile && entry.name.endsWith(".md") && entry.name !== "README.md"
+      entry.isFile() &&
+      entry.name.endsWith(".md") &&
+      entry.name !== "README.md"
     ) {
       paths.push(`${changesetDirectory}/${entry.name}`);
     }
@@ -80,59 +87,83 @@ async function listChangesetPaths(): Promise<string[]> {
 async function readChangesets(paths: string[]): Promise<Changeset[]> {
   return await Promise.all(
     paths.map(async (path) =>
-      parseChangeset(await Deno.readTextFile(path), path)
+      parseChangeset(await readFile(path, "utf8"), path),
     ),
   );
 }
 
 async function addChangeset(args: string[]): Promise<void> {
   const empty = args.includes("--empty");
-  let content = "---\n\n---\n";
+  let content = "---\n---\n";
 
   if (!empty) {
-    const selected = prompt("Release impact (patch, minor, or major):", "patch")
-      ?.trim().toLowerCase();
-    if (selected !== "patch" && selected !== "minor" && selected !== "major") {
-      throw new Error("Release impact must be patch, minor, or major");
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const selected =
+        (
+          await readline.question(
+            "Release impact (patch, minor, or major) [patch]: ",
+          )
+        )
+          .trim()
+          .toLowerCase() || "patch";
+      if (
+        selected !== "patch" &&
+        selected !== "minor" &&
+        selected !== "major"
+      ) {
+        throw new Error("Release impact must be patch, minor, or major");
+      }
+      const summary = (await readline.question("User-facing summary: ")).trim();
+      if (!summary) throw new Error("A user-facing summary is required");
+      content = `---\n"${packageName}": ${selected}\n---\n\n${summary}\n`;
+    } finally {
+      readline.close();
     }
-    const summary = prompt("User-facing summary:")?.trim();
-    if (!summary) throw new Error("A user-facing summary is required");
-    content = `---\n"${packageName}": ${selected}\n---\n\n${summary}\n`;
   }
 
-  const path = `${changesetDirectory}/${crypto.randomUUID().slice(0, 8)}.md`;
-  await Deno.writeTextFile(path, content, { createNew: true });
+  const path = `${changesetDirectory}/${randomUUID().slice(0, 8)}.md`;
+  await writeFile(path, content, { flag: "wx" });
   console.log(`Created ${path}`);
 }
 
 async function runGit(args: string[]): Promise<string> {
-  const result = await new Deno.Command("git", {
-    args,
-    stdout: "piped",
-    stderr: "piped",
-  }).output();
-  if (!result.success) {
-    throw new Error(new TextDecoder().decode(result.stderr).trim());
+  try {
+    const { stdout } = await promisify(execFile)("git", args);
+    return stdout.trim();
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(`git ${args.join(" ")} failed: ${stderr || error}`, {
+      cause: error,
+    });
   }
-  return new TextDecoder().decode(result.stdout).trim();
 }
 
 async function validateStatus(args: string[]): Promise<void> {
   const sinceArgument = args.find((argument) =>
-    argument.startsWith("--since=")
+    argument.startsWith("--since="),
   );
   const since = sinceArgument?.slice("--since=".length) ?? "origin/main";
-  const changedFiles = (await runGit([
-    "diff",
-    "--name-only",
-    "--diff-filter=AMRT",
-    `${since}...HEAD`,
-    "--",
-    changesetDirectory,
-  ])).split("\n").filter(Boolean);
-  const paths = changedFiles.filter((path) =>
-    path.startsWith(`${changesetDirectory}/`) && path.endsWith(".md") &&
-    path !== `${changesetDirectory}/README.md`
+  const changedFiles = (
+    await runGit([
+      "diff",
+      "--name-only",
+      "--diff-filter=AMRT",
+      `${since}...HEAD`,
+      "--",
+      changesetDirectory,
+    ])
+  )
+    .split("\n")
+    .filter(Boolean);
+  const paths = changedFiles.filter(
+    (path) =>
+      path.startsWith(`${changesetDirectory}/`) &&
+      path.endsWith(".md") &&
+      path !== `${changesetDirectory}/README.md`,
   );
   if (paths.length === 0) {
     throw new Error(`No release or empty Changeset found since ${since}`);
@@ -182,19 +213,27 @@ async function versionRelease(): Promise<void> {
   const changesets = await readChangesets(paths);
   const bump = selectBump(changesets);
   if (bump) {
-    const denoJson = JSON.parse(await Deno.readTextFile("deno.json"));
-    if (typeof denoJson.version !== "string") {
-      throw new Error("deno.json must contain a string version");
+    const packageJson = await readJson("package.json");
+    if (typeof packageJson.version !== "string") {
+      throw new Error("package.json must contain a string version");
     }
-    const version = bumpVersion(denoJson.version, bump);
-    denoJson.version = version;
-    await Deno.writeTextFile(
-      "deno.json",
-      `${JSON.stringify(denoJson, null, 2)}\n`,
-    );
+    const version = bumpVersion(packageJson.version, bump);
+    packageJson.version = version;
+    await writeJson("package.json", packageJson);
+
+    const packageLock = await readJson("package-lock.json");
+    const lockedRoot = (packageLock.packages as Record<string, JsonObject>)?.[
+      ""
+    ];
+    if (!lockedRoot) {
+      throw new Error("package-lock.json must contain the root package");
+    }
+    packageLock.version = version;
+    lockedRoot.version = version;
+    await writeJson("package-lock.json", packageLock);
 
     const changelogPath = "CHANGELOG.md";
-    const changelog = await Deno.readTextFile(changelogPath);
+    const changelog = await readFile(changelogPath, "utf8");
     const releaseIndex = changelog.indexOf("\n## ");
     if (releaseIndex === -1) {
       throw new Error(`${changelogPath} must contain an existing release`);
@@ -203,17 +242,27 @@ async function versionRelease(): Promise<void> {
     const preamble = changelog.slice(0, releaseIndex).trimEnd();
     const existingReleases = changelog.slice(releaseIndex).trim();
     const updated = `${preamble}\n\n${release}\n\n${existingReleases}\n`;
-    await Deno.writeTextFile(changelogPath, updated);
+    await writeFile(changelogPath, updated);
     console.log(`Prepared Cloud Connector ${version}`);
   } else {
     console.log("Consumed empty Changesets without changing version");
   }
 
-  await Promise.all(paths.map((path) => Deno.remove(path)));
+  await Promise.all(paths.map((path) => unlink(path)));
+}
+
+type JsonObject = Record<string, unknown>;
+
+async function readJson(path: string): Promise<JsonObject> {
+  return JSON.parse(await readFile(path, "utf8")) as JsonObject;
+}
+
+async function writeJson(path: string, value: JsonObject): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function main(): Promise<void> {
-  const [command, ...args] = Deno.args;
+  const [command, ...args] = process.argv.slice(2);
   if (command === "add") return await addChangeset(args);
   if (command === "status") return await validateStatus(args);
   if (command === "version") return await versionRelease();

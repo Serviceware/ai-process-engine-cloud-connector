@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import type { Server } from "node:http";
 import { ConfigReloader, watchConfigFile } from "./config-reloader.ts";
 import {
   combineConfig,
@@ -14,6 +16,7 @@ import {
   type ProtocolExecutor,
   ReloadableProtocolExecutor,
 } from "./connector.ts";
+import { serve } from "./http-server.ts";
 import type { ReloadableRuntimeLogger, RuntimeLogger } from "./logger.ts";
 import { createLogger, createReloadableLogger } from "./logger.ts";
 import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
@@ -116,6 +119,19 @@ export function createHandler(
   };
 }
 
+function serveProbes(
+  handler: (request: Request) => Response,
+  signal: AbortSignal,
+  logger: RuntimeLogger,
+): Promise<Server> {
+  return serve(handler, {
+    hostname: connectorListenHost,
+    port: connectorListenPort,
+    signal,
+    logger,
+  });
+}
+
 /**
  * Runs a task forever and recreates it if it fails while the process is live.
  */
@@ -139,19 +155,15 @@ async function superviseTask(
 
 /** Rebinds the fixed local probe server if it stops unexpectedly. */
 async function superviseHttpServer(
-  initial: Deno.HttpServer,
+  initial: Server,
   handler: (request: Request) => Response,
   signal: AbortSignal,
   logger: RuntimeLogger,
 ): Promise<void> {
-  let server: Deno.HttpServer | undefined = initial;
+  let server: Server | undefined = initial;
   while (!signal.aborted) {
     if (server !== undefined) {
-      try {
-        await server.finished;
-      } catch (error) {
-        logger.error("HTTP server error", error);
-      }
+      if (server.listening) await once(server, "close");
       if (signal.aborted) break;
       logger.error("HTTP server stopped unexpectedly; rebinding");
     }
@@ -160,14 +172,7 @@ async function superviseHttpServer(
     if (signal.aborted) break;
 
     try {
-      server = Deno.serve(
-        {
-          hostname: connectorListenHost,
-          port: connectorListenPort,
-          signal,
-        },
-        handler,
-      );
+      server = await serveProbes(handler, signal, logger);
     } catch (error) {
       server = undefined;
       logger.error("Failed to rebind HTTP server", error);
@@ -180,38 +185,14 @@ function logOutboundPolicy(
   logger: RuntimeLogger,
 ): void {
   const patterns = config.forwarding.length;
-  logger.info(
-    `YAML forwarding policy active with ${patterns} target rule(s)`,
-  );
+  logger.info(`YAML forwarding policy active with ${patterns} target rule(s)`);
 }
 
 // Main entry point
 if (import.meta.main) {
-  let startupComplete = false;
   let shuttingDown = false;
 
-  globalThis.addEventListener("unhandledrejection", (event) => {
-    if (!startupComplete) return;
-    event.preventDefault();
-    try {
-      console.error(
-        "[cloud-connector] unhandled rejection (recovered):",
-        event.reason,
-      );
-    } catch { /* never let logging terminate the process */ }
-  });
-  globalThis.addEventListener("error", (event) => {
-    if (!startupComplete) return;
-    event.preventDefault();
-    try {
-      console.error(
-        "[cloud-connector] uncaught error (recovered):",
-        event.error,
-      );
-    } catch { /* never let logging terminate the process */ }
-  });
-
-  const configPath = Deno.args[0] ?? defaultConfigPath;
+  const configPath = process.argv[2] ?? defaultConfigPath;
   let environment: EnvironmentConfig;
   let config: ConnectorConfig;
   let logger: ReloadableRuntimeLogger;
@@ -225,7 +206,7 @@ if (import.meta.main) {
       "[cloud-connector] FATAL: invalid configuration:",
       error instanceof Error ? error.message : error,
     );
-    Deno.exit(EX_CONFIG);
+    process.exit(EX_CONFIG);
   }
 
   let runtimeBundle: RuntimeBundle;
@@ -236,7 +217,7 @@ if (import.meta.main) {
       "[cloud-connector] FATAL: failed to initialize forward proxy:",
       error,
     );
-    Deno.exit(EX_SOFTWARE);
+    process.exit(EX_SOFTWARE);
   }
 
   const status = createRuntimeStatus();
@@ -273,19 +254,12 @@ if (import.meta.main) {
   );
 
   // First bind is fatal: a port conflict is unrecoverable in-process.
-  let server: Deno.HttpServer;
+  let server: Server;
   try {
-    server = Deno.serve(
-      {
-        hostname: connectorListenHost,
-        port: connectorListenPort,
-        signal: abortController.signal,
-      },
-      handler,
-    );
+    server = await serveProbes(handler, abortController.signal, logger);
   } catch (error) {
     console.error("[cloud-connector] FATAL: cannot bind HTTP server:", error);
-    Deno.exit(EX_OSERR);
+    process.exit(EX_OSERR);
   }
 
   const shutdown = () => {
@@ -293,18 +267,30 @@ if (import.meta.main) {
     shuttingDown = true;
     abortController.abort();
   };
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
-  startupComplete = true;
+  // Before this point an unexpected fault terminates startup.
+  process.on("unhandledRejection", (reason) => {
+    try {
+      console.error(
+        "[cloud-connector] unhandled rejection (recovered):",
+        reason,
+      );
+    } catch {
+      /* never let logging terminate the process */
+    }
+  });
+  process.on("uncaughtException", (error) => {
+    try {
+      console.error("[cloud-connector] uncaught error (recovered):", error);
+    } catch {
+      /* never let logging terminate the process */
+    }
+  });
 
   await Promise.all([
-    superviseHttpServer(
-      server,
-      handler,
-      abortController.signal,
-      logger,
-    ),
+    superviseHttpServer(server, handler, abortController.signal, logger),
     superviseTask(
       "websocket-client",
       () => websocketClient.run(abortController.signal),
@@ -313,12 +299,7 @@ if (import.meta.main) {
     ),
     superviseTask(
       "config-watcher",
-      () =>
-        watchConfigFile(
-          configPath,
-          configReloader,
-          abortController.signal,
-        ),
+      () => watchConfigFile(configPath, configReloader, abortController.signal),
       abortController.signal,
       logger,
     ),

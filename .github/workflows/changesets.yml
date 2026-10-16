@@ -1,4 +1,4 @@
-name: Deno release management
+name: Release management
 
 on:
   workflow_dispatch:
@@ -36,11 +36,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Deno
-        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          deno-version-file: .dvmrc
-          cache: true
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Require the main branch
         env:
@@ -49,7 +52,7 @@ jobs:
           [[ "${RELEASE_REF}" == "refs/heads/main" ]]
 
       - name: Prepare version and release artifacts
-        run: deno task release:version
+        run: npm run release:version
 
       - name: Create release pull request or publish current version
         id: result
@@ -78,17 +81,17 @@ jobs:
                 --base main \
                 --head "${release_branch}" \
                 --title "chore: release Cloud Connector" \
-                --body "Apply pending Deno Changesets and prepare the next Cloud Connector release."
+                --body "Apply pending Changesets and prepare the next Cloud Connector release."
             else
               gh pr edit "${pr_url}" \
                 --title "chore: release Cloud Connector" \
-                --body "Apply pending Deno Changesets and prepare the next Cloud Connector release."
+                --body "Apply pending Changesets and prepare the next Cloud Connector release."
             fi
             echo "published=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
-          version="$(deno eval 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')"
+          version="$(node --print 'require("./package.json").version')"
           tag="v${version}"
           if git rev-parse --verify --quiet "refs/tags/${tag}"; then
             tagged_commit="$(git rev-parse "${tag}^{commit}")"

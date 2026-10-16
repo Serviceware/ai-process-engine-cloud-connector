@@ -1,4 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
 import { ConfigReloader, watchConfigFile } from "./config-reloader.ts";
 import { type ConnectorConfig, loadEnvironmentConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
@@ -28,8 +31,9 @@ forwarding:
 `;
 }
 
-Deno.test("ConfigReloader activates complete valid snapshots only", async () => {
-  const file = await Deno.makeTempFile({ suffix: ".yml" });
+test("ConfigReloader activates complete valid snapshots only", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cloud-connector-"));
+  const file = join(directory, "cloud-connector.yml");
   let active: ConnectorConfig | undefined;
   const status = createRuntimeStatus();
   const reloader = new ConfigReloader(
@@ -43,36 +47,33 @@ Deno.test("ConfigReloader activates complete valid snapshots only", async () => 
   );
 
   try {
-    await Deno.writeTextFile(file, yaml("https://internal.example"));
-    assertEquals(await reloader.reload(), true);
-    assertEquals(status.lastReloadSucceeded, true);
-    assertEquals(
-      active?.forwarding[0].target,
+    await writeFile(file, yaml("https://internal.example"));
+    expect(await reloader.reload()).toStrictEqual(true);
+    expect(status.lastReloadSucceeded).toStrictEqual(true);
+    expect(active?.forwarding[0].target).toStrictEqual(
       "^https://internal.example(?:/.*)?$",
     );
 
-    await Deno.writeTextFile(file, "connection: [invalid");
-    assertEquals(await reloader.reload(), false);
-    assertEquals(status.lastReloadSucceeded, false);
-    assertEquals(typeof status.lastReloadAt, "number");
-    assertEquals(
-      active?.forwarding[0].target,
+    await writeFile(file, "connection: [invalid");
+    expect(await reloader.reload()).toStrictEqual(false);
+    expect(status.lastReloadSucceeded).toStrictEqual(false);
+    expect(typeof status.lastReloadAt).toStrictEqual("number");
+    expect(active?.forwarding[0].target).toStrictEqual(
       "^https://internal.example(?:/.*)?$",
     );
 
-    await Deno.writeTextFile(file, yaml("https://replacement.example", 200));
-    assertEquals(await reloader.reload(), false);
-    assertEquals(
-      active?.forwarding[0].target,
+    await writeFile(file, yaml("https://replacement.example", 200));
+    expect(await reloader.reload()).toStrictEqual(false);
+    expect(active?.forwarding[0].target).toStrictEqual(
       "^https://internal.example(?:/.*)?$",
     );
   } finally {
-    await Deno.remove(file);
+    await rm(directory, { recursive: true });
   }
 });
 
-Deno.test("watchConfigFile reloads an atomically replaced volume file", async () => {
-  const directory = await Deno.makeTempDir();
+test("watchConfigFile reloads an atomically replaced volume file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cloud-connector-"));
   const file = `${directory}/cloud-connector.yml`;
   const replacement = `${directory}/cloud-connector.next.yml`;
   const abortController = new AbortController();
@@ -80,7 +81,7 @@ Deno.test("watchConfigFile reloads an atomically replaced volume file", async ()
   let activations = 0;
 
   try {
-    await Deno.writeTextFile(file, yaml("https://internal.example"));
+    await writeFile(file, yaml("https://internal.example"));
     const reloader = new ConfigReloader(
       file,
       environment,
@@ -99,16 +100,15 @@ Deno.test("watchConfigFile reloads an atomically replaced volume file", async ()
     );
 
     await delay(10);
-    await Deno.writeTextFile(replacement, yaml("https://internal.example/v2"));
-    await Deno.rename(replacement, file);
+    await writeFile(replacement, yaml("https://internal.example/v2"));
+    await rename(replacement, file);
     await waitUntil(
       () =>
         active?.forwarding[0].target ===
-          "^https://internal.example/v2(?:/.*)?$",
+        "^https://internal.example/v2(?:/.*)?$",
     );
-    assertEquals(activations >= 1, true);
-    assertEquals(
-      active?.forwarding[0].target,
+    expect(activations >= 1).toStrictEqual(true);
+    expect(active?.forwarding[0].target).toStrictEqual(
       "^https://internal.example/v2(?:/.*)?$",
     );
 
@@ -116,7 +116,7 @@ Deno.test("watchConfigFile reloads an atomically replaced volume file", async ()
     await watcher;
   } finally {
     abortController.abort();
-    await Deno.remove(directory, { recursive: true });
+    await rm(directory, { recursive: true });
   }
 });
 

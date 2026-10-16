@@ -538,28 +538,13 @@ by the current platform protocol.
 
 ## Development
 
-Install [Deno Version Manager (`dvm`)](https://github.com/justjavac/dvm) if it
-is not already available. It installs Deno without requiring a pre-existing Deno
-installation:
+Install the Node.js version from `.node-version`, for example with
+[fnm](https://github.com/Schniz/fnm) or [nvm](https://github.com/nvm-sh/nvm),
+then install the locked dependencies and run the complete local check suite:
 
 ```bash
-# macOS, Linux, or WSL
-curl -fsSL https://raw.githubusercontent.com/justjavac/dvm/main/install.sh | sh
-```
-
-On Windows, run the installer in PowerShell instead:
-
-```powershell
-irm https://raw.githubusercontent.com/justjavac/dvm/main/install.ps1 | iex
-```
-
-Open a new shell, then install and select the Deno version from `.dvmrc` before
-running the complete local check suite:
-
-```bash
-dvm install
-dvm use
-deno task ci
+npm ci
+npm run ci
 ```
 
 See [Contributing](CONTRIBUTING.md) for the contribution workflow and

@@ -1,19 +1,21 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 import { RuntimeError, toCloudConnectorError } from "./runtime-error.ts";
 
-Deno.test("toCloudConnectorError preserves RuntimeError codes", () => {
-  assertEquals(
+test("toCloudConnectorError preserves RuntimeError codes", () => {
+  expect(
     toCloudConnectorError(new RuntimeError("HOOK_REJECTED", "Rejected")),
-    { code: "HOOK_REJECTED", message: "Rejected" },
-  );
+  ).toStrictEqual({
+    code: "HOOK_REJECTED",
+    message: "Rejected",
+  });
 });
 
-Deno.test("toCloudConnectorError normalizes unexpected errors", () => {
-  assertEquals(toCloudConnectorError(new Error("Boom")), {
+test("toCloudConnectorError normalizes unexpected errors", () => {
+  expect(toCloudConnectorError(new Error("Boom"))).toStrictEqual({
     code: "UNEXPECTED_ERROR",
     message: "Boom",
   });
-  assertEquals(toCloudConnectorError("plain failure"), {
+  expect(toCloudConnectorError("plain failure")).toStrictEqual({
     code: "UNEXPECTED_ERROR",
     message: "plain failure",
   });

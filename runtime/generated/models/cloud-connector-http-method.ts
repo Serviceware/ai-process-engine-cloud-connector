@@ -1,11 +1,11 @@
 export type CloudConnectorHttpMethod =
-  | ("GET")
-  | ("POST")
-  | ("PUT")
-  | ("PATCH")
-  | ("DELETE")
-  | ("HEAD")
-  | ("OPTIONS");
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE"
+  | "HEAD"
+  | "OPTIONS";
 
 /**
  * All possible values of the enum `CloudConnectorHttpMethod`.

@@ -1,0 +1,44 @@
+{
+  "name": "ai-process-engine-cloud-connector",
+  "version": "1.0.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "changeset": "node scripts/changeset.ts add",
+    "changeset:status": "node scripts/changeset.ts status",
+    "ci": "npm run fmt:check && npm run lint && npm run typecheck && npm run test && npm run test:integration && npm run generate:check && npm run release:check",
+    "dev": "node --watch runtime/main.ts",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "generate:api": "node runtime/generate-api.ts",
+    "generate:check": "npm run generate:api && oxfmt runtime/generated && git diff --exit-code -- runtime/generated",
+    "lint": "oxlint --deny-warnings runtime scripts integration",
+    "release:check": "node scripts/sync-release-artifacts.ts --check",
+    "release:version": "node scripts/changeset.ts version && node scripts/sync-release-artifacts.ts",
+    "start": "node --permission --allow-fs-read=* runtime/main.ts",
+    "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:integration": "vitest run --project integration",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@goast/core": "0.5.3",
+    "@goast/typescript": "0.6.2",
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "@vitest/coverage-v8": "5.0.5",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5",
+    "ws": "8.22.0"
+  },
+  "engines": {
+    "node": ">=24.21.0 <25"
+  }
+}

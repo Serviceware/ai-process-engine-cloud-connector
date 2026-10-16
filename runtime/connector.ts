@@ -109,10 +109,15 @@ export class ConnectorRuntime {
       }
 
       if (isRequestFrame(frame) && !acceptingRequests) {
-        void Promise.resolve(send(createErrorFrame(frame.requestId, {
-          code: "CONNECTOR_DRAINING",
-          message: "Cloud Connector is draining before reconnect or shutdown",
-        }))).catch((error) => {
+        void Promise.resolve(
+          send(
+            createErrorFrame(frame.requestId, {
+              code: "CONNECTOR_DRAINING",
+              message:
+                "Cloud Connector is draining before reconnect or shutdown",
+            }),
+          ),
+        ).catch((error) => {
           this.logger.error(
             `Failed to reject draining request ${frame.requestId}`,
             error,
@@ -124,10 +129,14 @@ export class ConnectorRuntime {
         isRequestFrame(frame) &&
         inFlight.size >= this.maximumConcurrentRequests
       ) {
-        void Promise.resolve(send(createErrorFrame(frame.requestId, {
-          code: "TOO_MANY_REQUESTS",
-          message: "Cloud Connector request concurrency limit reached",
-        }))).catch((error) => {
+        void Promise.resolve(
+          send(
+            createErrorFrame(frame.requestId, {
+              code: "TOO_MANY_REQUESTS",
+              message: "Cloud Connector request concurrency limit reached",
+            }),
+          ),
+        ).catch((error) => {
           this.logger.error(
             `Failed to reject excess request ${frame.requestId}`,
             error,
@@ -170,7 +179,7 @@ export class ConnectorRuntime {
         const timedOut = new Promise<false>((resolve) => {
           timeoutId = setTimeout(() => resolve(false), timeoutMs);
         });
-        const drained = Promise.allSettled([...inFlight]).then(() => true);
+        const drained = Promise.allSettled(inFlight).then(() => true);
         const result = await Promise.race([drained, timedOut]);
         if (timeoutId !== undefined) clearTimeout(timeoutId);
         return result;
@@ -190,9 +199,7 @@ export class ConnectorRuntime {
       this.logger.warn(
         `Forwarding request ${frame.requestId} failed: ${connectorError.code}`,
       );
-      await send(
-        createErrorFrame(frame.requestId, connectorError),
-      );
+      await send(createErrorFrame(frame.requestId, connectorError));
     }
   }
 }

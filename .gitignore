@@ -1,5 +1,5 @@
-# Deno
-.deno/
+# Node.js
+node_modules/
 
 # Environment files
 .env

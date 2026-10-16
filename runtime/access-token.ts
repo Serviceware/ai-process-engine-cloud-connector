@@ -13,10 +13,7 @@ export type AccessTokenOptions = {
 const defaultTokenFetchTimeoutMs = 10_000;
 
 /** Combines the per-fetch timeout with an optional external abort signal. */
-function fetchSignal(
-  timeoutMs: number,
-  external?: AbortSignal,
-): AbortSignal {
+function fetchSignal(timeoutMs: number, external?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
   return external ? AbortSignal.any([timeout, external]) : timeout;
 }
@@ -48,19 +45,18 @@ export async function generateAccessToken(
     );
   }
 
-  const wellKnown = await wellKnownResponse.json() as WellKnownConfiguration;
-  const authEndpoint = typeof wellKnown.auth?.issuer === "string"
-    ? wellKnown.auth.issuer
-    : undefined;
+  const wellKnown = (await wellKnownResponse.json()) as WellKnownConfiguration;
+  const authEndpoint =
+    typeof wellKnown.auth?.issuer === "string"
+      ? wellKnown.auth.issuer
+      : undefined;
   if (!authEndpoint) {
     throw new Error(
       "Authentication endpoint not found in well-known configuration.",
     );
   }
   const issuer = new URL(authEndpoint);
-  if (
-    issuer.username || issuer.password || issuer.search || issuer.hash
-  ) {
+  if (issuer.username || issuer.password || issuer.search || issuer.hash) {
     throw new Error(
       "Authentication issuer must not contain credentials, query parameters, or a fragment.",
     );
@@ -88,7 +84,7 @@ export async function generateAccessToken(
     );
   }
 
-  const tokenData = await tokenResponse.json() as TokenResponse;
+  const tokenData = (await tokenResponse.json()) as TokenResponse;
   if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
     throw new Error("Access token not found in token response.");
   }

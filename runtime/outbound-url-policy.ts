@@ -29,9 +29,7 @@ export class OutboundUrlAllowlist {
     if (!this.allows(url)) {
       throw new RuntimeError(
         "OUTBOUND_URL_NOT_ALLOWED",
-        `Outbound URL is not allowed by forwarding target rules: ${
-          displayUrl(url)
-        }`,
+        `Outbound URL is not allowed by forwarding target rules: ${displayUrl(url)}`,
       );
     }
     return url;
@@ -96,32 +94,29 @@ function createRedirectRequest(
   status: number,
 ): Request {
   const headers = new Headers(source.headers);
-  const switchesToGet = status === 303 && source.method !== "HEAD" ||
-    (status === 301 || status === 302) && source.method === "POST";
+  const switchesToGet =
+    (status === 303 && source.method !== "HEAD") ||
+    ((status === 301 || status === 302) && source.method === "POST");
 
   if (switchesToGet) {
-    for (
-      const name of [
-        "content-encoding",
-        "content-language",
-        "content-length",
-        "content-location",
-        "content-type",
-      ]
-    ) {
+    for (const name of [
+      "content-encoding",
+      "content-language",
+      "content-length",
+      "content-location",
+      "content-type",
+    ]) {
       headers.delete(name);
     }
   }
 
   if (new URL(source.url).origin !== target.origin) {
-    for (
-      const name of [
-        "authorization",
-        "cookie",
-        "cookie2",
-        "proxy-authorization",
-      ]
-    ) {
+    for (const name of [
+      "authorization",
+      "cookie",
+      "cookie2",
+      "proxy-authorization",
+    ]) {
       headers.delete(name);
     }
   }

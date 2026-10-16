@@ -1,4 +1,6 @@
-import { assert, assertEquals, assertMatch } from "@std/assert";
+import { once } from "node:events";
+import { createServer } from "node:net";
+import { expect, test } from "vitest";
 import { ConnectorProcess } from "./connector-process.ts";
 import { StubAiProcessEngine } from "./stub-ai-process-engine.ts";
 import { StubTarget, type TargetHandler } from "./stub-target.ts";
@@ -28,8 +30,11 @@ type ConfigOptions = {
 
 function connectorConfig(
   target: StubTarget,
-  { path = "api", heartbeatIntervalSeconds = 1, auth = true }: ConfigOptions =
-    {},
+  {
+    path = "api",
+    heartbeatIntervalSeconds = 1,
+    auth = true,
+  }: ConfigOptions = {},
 ): string {
   const authConfig = auth
     ? `
@@ -59,11 +64,11 @@ forwarding:
 
 async function withConnector(
   options: FixtureOptions,
-  test: (fixture: Fixture) => Promise<void>,
+  run: (fixture: Fixture) => Promise<void>,
 ): Promise<void> {
-  const engine = StubAiProcessEngine.start({ clientId, clientSecret });
+  const engine = await StubAiProcessEngine.start({ clientId, clientSecret });
   try {
-    const target = StubTarget.start(options.target);
+    const target = await StubTarget.start(options.target);
     try {
       const connector = await ConnectorProcess.start({
         env: {
@@ -81,13 +86,12 @@ async function withConnector(
       });
       try {
         if (options.waitUntilReady ?? true) await connector.waitUntilReady();
-        await test({ engine, target, connector });
+        await run({ engine, target, connector });
       } catch (error) {
         const { output } = await connector.stop("SIGKILL");
-        throw new Error(
-          `${error}\n--- Cloud Connector output ---\n${output}`,
-          { cause: error },
-        );
+        throw new Error(`${error}\n--- Cloud Connector output ---\n${output}`, {
+          cause: error,
+        });
       } finally {
         await connector.close();
       }
@@ -99,127 +103,148 @@ async function withConnector(
   }
 }
 
-Deno.test("connects with client credentials and reports readiness", async () => {
+test("connects with client credentials and reports readiness", async () => {
   await withConnector({}, async ({ engine, connector }) => {
     const connection = await engine.connection(0);
 
-    assertEquals(engine.tokenRequests, [{
-      grantType: "client_credentials",
-      clientId,
-      clientSecret,
-    }]);
-    assertEquals(connection.purpose, "integration");
-    assertEquals(engine.issuedTokens.length, 1);
-    assertEquals(connection.authorization, `Bearer ${engine.issuedTokens[0]}`);
+    expect(engine.tokenRequests).toStrictEqual([
+      {
+        grantType: "client_credentials",
+        clientId,
+        clientSecret,
+      },
+    ]);
+    expect(connection.purpose).toStrictEqual("integration");
+    expect(engine.issuedTokens.length).toStrictEqual(1);
+    expect(connection.authorization).toStrictEqual(
+      `Bearer ${engine.issuedTokens[0]}`,
+    );
 
     const ready = await connector.ready();
-    assertEquals(ready.status, 200);
-    assertEquals(ready.body.status, "ready");
-    assertEquals(ready.body.connectionState, "open");
+    expect(ready.status).toStrictEqual(200);
+    expect(ready.body.status).toStrictEqual("ready");
+    expect(ready.body.connectionState).toStrictEqual("open");
   });
 });
 
-Deno.test("forwards an allowed request and returns the target response", async () => {
-  await withConnector({
-    target: () =>
-      new Response('{"tickets":[1,2]}', {
-        status: 201,
-        headers: { "content-type": "application/json", "x-internal": "hidden" },
-      }),
-  }, async ({ engine, target }) => {
-    const connection = await engine.connection(0);
+test("forwards an allowed request and returns the target response", async () => {
+  await withConnector(
+    {
+      target: () =>
+        new Response('{"tickets":[1,2]}', {
+          status: 201,
+          headers: {
+            "content-type": "application/json",
+            "x-internal": "hidden",
+          },
+        }),
+    },
+    async ({ engine, target }) => {
+      const connection = await engine.connection(0);
 
-    const frame = await connection.request({
-      method: "POST",
-      url: `${target.url}/api/tickets?state=open`,
-      headers: {
-        "content-type": ["application/json"],
-        authorization: ["Bearer caller-credential"],
-        cookie: ["session=caller"],
-      },
-      body: '{"title":"Printer broken"}',
-    }, "request-1");
+      const frame = await connection.request(
+        {
+          method: "POST",
+          url: `${target.url}/api/tickets?state=open`,
+          headers: {
+            "content-type": ["application/json"],
+            authorization: ["Bearer caller-credential"],
+            cookie: ["session=caller"],
+          },
+          body: '{"title":"Printer broken"}',
+        },
+        "request-1",
+      );
 
-    assertEquals(frame.error, undefined);
-    assertEquals(frame.response?.statusCode, 201);
-    assertEquals(frame.response?.body, '{"tickets":[1,2]}');
-    assertEquals(frame.response?.headers?.["content-type"], [
-      "application/json",
-    ]);
-    assertEquals(frame.response?.headers?.["x-internal"], undefined);
+      expect(frame.error).toStrictEqual(undefined);
+      expect(frame.response?.statusCode).toStrictEqual(201);
+      expect(frame.response?.body).toStrictEqual('{"tickets":[1,2]}');
+      expect(frame.response?.headers?.["content-type"]).toStrictEqual([
+        "application/json",
+      ]);
+      expect(frame.response?.headers?.["x-internal"]).toStrictEqual(undefined);
 
-    assertEquals(target.requests.length, 1);
-    const [forwarded] = target.requests;
-    assertEquals(forwarded.method, "POST");
-    assertEquals(forwarded.url.pathname, "/api/tickets");
-    assertEquals(forwarded.url.search, "?state=open");
-    assertEquals(forwarded.body, '{"title":"Printer broken"}');
-    assertEquals(forwarded.headers.get("content-type"), "application/json");
-    assertEquals(
-      forwarded.headers.get("authorization"),
-      `Bearer ${targetToken}`,
-    );
-    assertEquals(forwarded.headers.get("cookie"), null);
-    assertEquals(forwarded.headers.get("x-request-id"), "request-1");
-  });
+      expect(target.requests.length).toStrictEqual(1);
+      const [forwarded] = target.requests;
+      expect(forwarded.method).toStrictEqual("POST");
+      expect(forwarded.url.pathname).toStrictEqual("/api/tickets");
+      expect(forwarded.url.search).toStrictEqual("?state=open");
+      expect(forwarded.body).toStrictEqual('{"title":"Printer broken"}');
+      expect(forwarded.headers.get("content-type")).toStrictEqual(
+        "application/json",
+      );
+      expect(forwarded.headers.get("authorization")).toStrictEqual(
+        `Bearer ${targetToken}`,
+      );
+      expect(forwarded.headers.get("cookie")).toStrictEqual(null);
+      expect(forwarded.headers.get("x-request-id")).toStrictEqual("request-1");
+    },
+  );
 });
 
-Deno.test("strips caller credentials when the rule configures no auth", async () => {
-  await withConnector({
-    config: (target) => connectorConfig(target, { auth: false }),
-  }, async ({ engine, target }) => {
-    const connection = await engine.connection(0);
+test("strips caller credentials when the rule configures no auth", async () => {
+  await withConnector(
+    { config: (target) => connectorConfig(target, { auth: false }) },
+    async ({ engine, target }) => {
+      const connection = await engine.connection(0);
 
-    const frame = await connection.request({
-      method: "GET",
-      url: `${target.url}/api/tickets`,
-      headers: {
-        authorization: ["Bearer caller-credential"],
-        cookie: ["session=caller"],
-      },
-    });
+      const frame = await connection.request({
+        method: "GET",
+        url: `${target.url}/api/tickets`,
+        headers: {
+          authorization: ["Bearer caller-credential"],
+          cookie: ["session=caller"],
+        },
+      });
 
-    assertEquals(frame.response?.statusCode, 200);
-    const [forwarded] = target.requests;
-    assertEquals(forwarded.headers.get("authorization"), null);
-    assertEquals(forwarded.headers.get("cookie"), null);
-  });
+      expect(frame.response?.statusCode).toStrictEqual(200);
+      const [forwarded] = target.requests;
+      expect(forwarded.headers.get("authorization")).toStrictEqual(null);
+      expect(forwarded.headers.get("cookie")).toStrictEqual(null);
+    },
+  );
 });
 
-Deno.test("serves concurrent requests over one connection", async () => {
+test("serves concurrent requests over one connection", async () => {
   const concurrency = 5;
   let arrived = 0;
   let releaseTargets!: () => void;
   const allArrived = new Promise<void>((resolve) => {
     releaseTargets = resolve;
   });
-  await withConnector({
-    target: async ({ url }) => {
-      arrived += 1;
-      if (arrived === concurrency) releaseTargets();
-      await allArrived;
-      return new Response(url.searchParams.get("n"));
+  await withConnector(
+    {
+      target: async ({ url }) => {
+        arrived += 1;
+        if (arrived === concurrency) releaseTargets();
+        await allArrived;
+        return new Response(url.searchParams.get("n"));
+      },
     },
-  }, async ({ engine, target }) => {
-    const connection = await engine.connection(0);
+    async ({ engine, target }) => {
+      const connection = await engine.connection(0);
 
-    const frames = await Promise.all(
-      [1, 2, 3, 4, 5].map((n) =>
-        connection.request({
-          method: "GET",
-          url: `${target.url}/api/echo?n=${n}`,
-        })
-      ),
-    );
+      const frames = await Promise.all(
+        [1, 2, 3, 4, 5].map((n) =>
+          connection.request({
+            method: "GET",
+            url: `${target.url}/api/echo?n=${n}`,
+          }),
+        ),
+      );
 
-    assertEquals(
-      frames.map((frame) => frame.response?.body),
-      ["1", "2", "3", "4", "5"],
-    );
-  });
+      expect(frames.map((frame) => frame.response?.body)).toStrictEqual([
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+      ]);
+    },
+  );
 });
 
-Deno.test("denies URLs and methods outside the forwarding policy", async () => {
+test("denies URLs and methods outside the forwarding policy", async () => {
   await withConnector({}, async ({ engine, target }) => {
     const connection = await engine.connection(0);
 
@@ -227,50 +252,53 @@ Deno.test("denies URLs and methods outside the forwarding policy", async () => {
       method: "GET",
       url: `${target.url}/admin`,
     });
-    assertEquals(unmatched.response, undefined);
-    assertEquals(unmatched.error?.code, "OUTBOUND_URL_NOT_ALLOWED");
+    expect(unmatched.response).toStrictEqual(undefined);
+    expect(unmatched.error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
 
     const otherHost = await connection.request({
       method: "GET",
       url: "http://localhost:1/api/tickets",
     });
-    assertEquals(otherHost.error?.code, "OUTBOUND_URL_NOT_ALLOWED");
+    expect(otherHost.error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
 
     const method = await connection.request({
       method: "DELETE",
       url: `${target.url}/api/tickets/1`,
     });
-    assertEquals(method.error?.code, "METHOD_NOT_ALLOWED");
+    expect(method.error?.code).toStrictEqual("METHOD_NOT_ALLOWED");
 
-    assertEquals(target.requests.length, 0);
+    expect(target.requests.length).toStrictEqual(0);
   });
 });
 
-Deno.test("denies redirects that leave the forwarding policy", async () => {
-  await withConnector({
-    target: ({ url }) =>
-      url.pathname === "/api/moved"
-        ? new Response(null, {
-          status: 302,
-          headers: { location: "/internal/secret" },
-        })
-        : new Response("secret"),
-  }, async ({ engine, target }) => {
-    const connection = await engine.connection(0);
+test("denies redirects that leave the forwarding policy", async () => {
+  await withConnector(
+    {
+      target: ({ url }) =>
+        url.pathname === "/api/moved"
+          ? new Response(null, {
+              status: 302,
+              headers: { location: "/internal/secret" },
+            })
+          : new Response("secret"),
+    },
+    async ({ engine, target }) => {
+      const connection = await engine.connection(0);
 
-    const frame = await connection.request({
-      method: "GET",
-      url: `${target.url}/api/moved`,
-    });
+      const frame = await connection.request({
+        method: "GET",
+        url: `${target.url}/api/moved`,
+      });
 
-    assertEquals(frame.error?.code, "OUTBOUND_URL_NOT_ALLOWED");
-    assertEquals(target.requests.map((request) => request.url.pathname), [
-      "/api/moved",
-    ]);
-  });
+      expect(frame.error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
+      expect(
+        target.requests.map((request) => request.url.pathname),
+      ).toStrictEqual(["/api/moved"]);
+    },
+  );
 });
 
-Deno.test("reports unreachable targets as protocol errors", async () => {
+test("reports unreachable targets as protocol errors", async () => {
   await withConnector({}, async ({ engine, target }) => {
     const connection = await engine.connection(0);
     const url = `${target.url}/api/tickets`;
@@ -278,11 +306,11 @@ Deno.test("reports unreachable targets as protocol errors", async () => {
 
     const frame = await connection.request({ method: "GET", url });
 
-    assertEquals(frame.error?.code, "TARGET_REQUEST_ERROR");
+    expect(frame.error?.code).toStrictEqual("TARGET_REQUEST_ERROR");
   });
 });
 
-Deno.test("sends periodic heartbeats", async () => {
+test("sends periodic heartbeats", async () => {
   await withConnector({}, async ({ engine }) => {
     const connection = await engine.connection(0);
     const heartbeats = () =>
@@ -292,30 +320,34 @@ Deno.test("sends periodic heartbeats", async () => {
       () => heartbeats().length >= 2 || undefined,
       "two connector heartbeats",
     );
-    assertEquals(typeof heartbeats()[0].sentAt, "string");
+    expect(typeof heartbeats()[0].sentAt).toStrictEqual("string");
   });
 });
 
-Deno.test("answers heartbeats from the engine", async () => {
-  await withConnector({
-    config: (target) =>
-      connectorConfig(target, { heartbeatIntervalSeconds: 60 }),
-  }, async ({ engine }) => {
-    const connection = await engine.connection(0);
-    const before = connection.frames.length;
+test("answers heartbeats from the engine", async () => {
+  await withConnector(
+    {
+      config: (target) =>
+        connectorConfig(target, { heartbeatIntervalSeconds: 60 }),
+    },
+    async ({ engine }) => {
+      const connection = await engine.connection(0);
+      const before = connection.frames.length;
 
-    connection.send(JSON.stringify({ type: "heartbeat" }));
+      connection.send(JSON.stringify({ type: "heartbeat" }));
 
-    await connection.waitForFrame(
-      (frame) =>
-        frame.type === "heartbeat" &&
-        connection.frames.indexOf(frame) >= before,
-      "heartbeat answer",
-    );
-  });
+      const answer = await connection.waitForFrame(
+        (frame) =>
+          frame.type === "heartbeat" &&
+          connection.frames.indexOf(frame) >= before,
+        "heartbeat answer",
+      );
+      expect(typeof answer.sentAt).toStrictEqual("string");
+    },
+  );
 });
 
-Deno.test("reports not ready while the engine connection is down", async () => {
+test("reports not ready while the engine connection is down", async () => {
   await withConnector({}, async ({ engine, connector }) => {
     const connection = await engine.connection(0);
     engine.acceptConnections = false;
@@ -326,14 +358,14 @@ Deno.test("reports not ready while the engine connection is down", async () => {
       const ready = await connector.ready();
       return ready.status === 503 ? ready : undefined;
     }, "readiness 503");
-    assertEquals(notReady.body.status, "not_ready");
+    expect(notReady.body.status).toStrictEqual("not_ready");
 
     engine.acceptConnections = true;
     await connector.waitUntilReady();
   });
 });
 
-Deno.test("ignores invalid frames and keeps serving", async () => {
+test("ignores invalid frames and keeps serving", async () => {
   await withConnector({}, async ({ engine, target }) => {
     const connection = await engine.connection(0);
 
@@ -345,145 +377,157 @@ Deno.test("ignores invalid frames and keeps serving", async () => {
       method: "GET",
       url: `${target.url}/api/tickets`,
     });
-    assertEquals(frame.response?.statusCode, 200);
-    assertEquals(
-      connection.frames.filter((received) =>
-        received.requestId === "broken" || received.requestId === "x"
+    expect(frame.response?.statusCode).toStrictEqual(200);
+    expect(
+      connection.frames.filter(
+        (received) =>
+          received.requestId === "broken" || received.requestId === "x",
       ),
-      [],
-    );
-    assertEquals(target.requests.length, 1);
-    assert(connection.isOpen);
-    assertEquals(engine.connections.length, 1);
+    ).toStrictEqual([]);
+    expect(target.requests.length).toStrictEqual(1);
+    expect(connection.isOpen).toBeTruthy();
+    expect(engine.connections.length).toStrictEqual(1);
   });
 });
 
-Deno.test("reconnects with a fresh token after the engine closes the connection", async () => {
+test("reconnects with a fresh token after the engine closes the connection", async () => {
   await withConnector({}, async ({ engine, target, connector }) => {
     const first = await engine.connection(0);
     first.close();
     await first.closed;
 
     const second = await engine.connection(1);
-    assertEquals(engine.tokenRequests.length, 2);
-    assertEquals(first.authorization, `Bearer ${engine.issuedTokens[0]}`);
-    assertEquals(second.authorization, `Bearer ${engine.issuedTokens[1]}`);
+    expect(engine.tokenRequests.length).toStrictEqual(2);
+    expect(first.authorization).toStrictEqual(
+      `Bearer ${engine.issuedTokens[0]}`,
+    );
+    expect(second.authorization).toStrictEqual(
+      `Bearer ${engine.issuedTokens[1]}`,
+    );
 
     const frame = await second.request({
       method: "GET",
       url: `${target.url}/api/tickets`,
     });
-    assertEquals(frame.response?.statusCode, 200);
+    expect(frame.response?.statusCode).toStrictEqual(200);
     await connector.waitUntilReady();
   });
 });
 
-Deno.test("hot-reloads forwarding rules and keeps the last valid configuration", async () => {
+test("hot-reloads forwarding rules and keeps the last valid configuration", async () => {
   await withConnector({}, async ({ engine, target, connector }) => {
     const connection = await engine.connection(0);
     const request = (path: string) =>
       connection.request({ method: "GET", url: `${target.url}/${path}` });
 
-    assertEquals(
-      (await request("v2/tickets")).error?.code,
+    expect((await request("v2/tickets")).error?.code).toStrictEqual(
       "OUTBOUND_URL_NOT_ALLOWED",
     );
 
     await connector.writeConfig(connectorConfig(target, { path: "v2" }));
     await waitForReload(connector, true);
-    assertEquals((await request("v2/tickets")).response?.statusCode, 200);
-    assertEquals(
-      (await request("api/tickets")).error?.code,
+    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(
+      200,
+    );
+    expect((await request("api/tickets")).error?.code).toStrictEqual(
       "OUTBOUND_URL_NOT_ALLOWED",
     );
 
     await connector.writeConfig("forwarding: []\n");
     await waitForReload(connector, false);
-    assertEquals((await request("v2/tickets")).response?.statusCode, 200);
+    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(
+      200,
+    );
 
-    assertEquals(engine.connections.length, 1);
-    assert(connection.isOpen);
+    expect(engine.connections.length).toStrictEqual(1);
+    expect(connection.isOpen).toBeTruthy();
   });
 });
 
-Deno.test({
-  name: "drains in-flight requests and exits cleanly on SIGTERM",
-  // Windows cannot deliver SIGTERM to a child process.
-  ignore: Deno.build.os === "windows",
-  fn: async () => {
+// Windows cannot deliver SIGTERM to a child process.
+test.skipIf(process.platform === "win32")(
+  "drains in-flight requests and exits cleanly on SIGTERM",
+  async () => {
     let releaseTarget!: () => void;
     const targetReleased = new Promise<void>((resolve) => {
       releaseTarget = resolve;
     });
-    await withConnector({
-      target: async () => {
-        await targetReleased;
-        return new Response("finished");
+    await withConnector(
+      {
+        target: async () => {
+          await targetReleased;
+          return new Response("finished");
+        },
       },
-    }, async ({ engine, target, connector }) => {
-      const connection = await engine.connection(0);
-      const response = connection.request({
-        method: "GET",
-        url: `${target.url}/api/slow`,
-      });
-      await waitFor(
-        () => target.requests.length > 0 || undefined,
-        "slow target request",
-      );
+      async ({ engine, target, connector }) => {
+        const connection = await engine.connection(0);
+        const response = connection.request({
+          method: "GET",
+          url: `${target.url}/api/slow`,
+        });
+        await waitFor(
+          () => target.requests.length > 0 || undefined,
+          "slow target request",
+        );
 
-      const exit = connector.stop("SIGTERM");
-      setTimeout(releaseTarget, 500);
+        const exit = connector.stop("SIGTERM");
+        setTimeout(releaseTarget, 500);
 
-      assertEquals((await response).response?.body, "finished");
-      await connection.closed;
-      assertEquals((await exit).code, 0);
-    });
-  },
-});
-
-Deno.test("exits with EX_CONFIG for an invalid configuration", async () => {
-  await withConnector({
-    config: () => "connection:\n  purpose: integration\nforwarding: []\n",
-    waitUntilReady: false,
-  }, async ({ engine, connector }) => {
-    const { code, output } = await connector.waitForExit();
-
-    assertEquals(code, 78);
-    assertMatch(
-      output,
-      /FATAL: invalid configuration: .*forwarding must be a non-empty array of rules/,
+        expect((await response).response?.body).toStrictEqual("finished");
+        await connection.closed;
+        expect((await exit).code).toStrictEqual(0);
+      },
     );
-    assertEquals(engine.tokenRequests.length, 0);
-  });
+  },
+);
+
+test("exits with EX_CONFIG for an invalid configuration", async () => {
+  await withConnector(
+    {
+      config: () => "connection:\n  purpose: integration\nforwarding: []\n",
+      waitUntilReady: false,
+    },
+    async ({ engine, connector }) => {
+      const { code, output } = await connector.waitForExit();
+
+      expect(code).toStrictEqual(78);
+      expect(output).toMatch(
+        /FATAL: invalid configuration: .*forwarding must be a non-empty array of rules/,
+      );
+      expect(engine.tokenRequests.length).toStrictEqual(0);
+    },
+  );
 });
 
-Deno.test({
-  name: "exits cleanly on SIGINT",
-  // Windows cannot deliver SIGINT to a child process.
-  ignore: Deno.build.os === "windows",
-  fn: async () => {
+// Windows cannot deliver SIGINT to a child process.
+test.skipIf(process.platform === "win32")(
+  "exits cleanly on SIGINT",
+  async () => {
     await withConnector({}, async ({ engine, connector }) => {
       const connection = await engine.connection(0);
 
       const { code } = await connector.stop("SIGINT");
 
-      assertEquals(code, 0);
+      expect(code).toStrictEqual(0);
       await connection.closed;
     });
   },
-});
+);
 
-Deno.test("exits with EX_OSERR when the probe port is taken", async () => {
-  const blocker = Deno.listen({ hostname: "0.0.0.0", port: 8080 });
+test("exits with EX_OSERR when the probe port is taken", async () => {
+  const blocker = createServer();
+  blocker.listen(8080, "0.0.0.0");
+  await once(blocker, "listening");
   try {
     await withConnector({ waitUntilReady: false }, async ({ connector }) => {
       const { code, output } = await connector.waitForExit();
 
-      assertEquals(code, 71);
-      assertMatch(output, /FATAL: cannot bind HTTP server/);
+      expect(code).toStrictEqual(71);
+      expect(output).toMatch(/FATAL: cannot bind HTTP server/);
     });
   } finally {
     blocker.close();
+    await once(blocker, "close");
   }
 });
 

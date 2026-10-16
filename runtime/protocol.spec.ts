@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { expect, test } from "vitest";
 import type { CloudConnectorMessageFrame } from "./generated/models.ts";
 import {
   createErrorFrame,
@@ -9,9 +9,8 @@ import {
   parseMessageFrame,
   serializeFrame,
 } from "./protocol.ts";
-import { RuntimeError } from "./runtime-error.ts";
 
-Deno.test("parseMessageFrame parses request and heartbeat frames", () => {
+test("parseMessageFrame parses request and heartbeat frames", () => {
   const requestFrame: CloudConnectorMessageFrame = {
     type: "request",
     requestId: "request-1",
@@ -25,49 +24,58 @@ Deno.test("parseMessageFrame parses request and heartbeat frames", () => {
   const parsedRequest = parseMessageFrame(JSON.stringify(requestFrame));
   const parsedHeartbeat = parseMessageFrame(JSON.stringify(heartbeatFrame));
 
-  assertEquals(isRequestFrame(parsedRequest), true);
-  assertEquals(isHeartbeatFrame(parsedHeartbeat), true);
-  assertEquals(parsedRequest, requestFrame);
-  assertEquals(parsedHeartbeat, heartbeatFrame);
+  expect(isRequestFrame(parsedRequest)).toStrictEqual(true);
+  expect(isHeartbeatFrame(parsedHeartbeat)).toStrictEqual(true);
+  expect(parsedRequest).toStrictEqual(requestFrame);
+  expect(parsedHeartbeat).toStrictEqual(heartbeatFrame);
 });
 
-Deno.test("parseMessageFrame rejects malformed frames", () => {
-  assertThrows(
-    () => parseMessageFrame(new Uint8Array()),
-    RuntimeError,
-    "WebSocket frames must be JSON strings",
+test("parseMessageFrame rejects malformed frames", () => {
+  expect(() => parseMessageFrame(new Uint8Array())).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("WebSocket frames must be JSON strings"),
+    }),
   );
-  assertThrows(
-    () => parseMessageFrame("{"),
-    RuntimeError,
-    "WebSocket frame is not valid JSON",
+  expect(() => parseMessageFrame("{")).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("WebSocket frame is not valid JSON"),
+    }),
   );
-  assertThrows(
-    () => parseMessageFrame("{}"),
-    RuntimeError,
-    "WebSocket frame must contain a string type",
-  );
-  assertThrows(
-    () => parseMessageFrame('{"type":"unknown"}'),
-    RuntimeError,
-    "Unsupported frame type: unknown",
-  );
-  assertThrows(
-    () => parseMessageFrame('{"type":"request"}'),
-    RuntimeError,
-    "requestId",
-  );
-  assertThrows(
-    () =>
-      parseMessageFrame(
-        '{"type":"request","requestId":"request-1","request":{}}',
+  expect(() => parseMessageFrame("{}")).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining(
+        "WebSocket frame must contain a string type",
       ),
-    RuntimeError,
-    "request.method",
+    }),
+  );
+  expect(() => parseMessageFrame('{"type":"unknown"}')).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("Unsupported frame type: unknown"),
+    }),
+  );
+  expect(() => parseMessageFrame('{"type":"request"}')).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("requestId"),
+    }),
+  );
+  expect(() =>
+    parseMessageFrame(
+      '{"type":"request","requestId":"request-1","request":{}}',
+    ),
+  ).toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("request.method"),
+    }),
   );
 });
 
-Deno.test("frame factories create serializable outbound frames", () => {
+test("frame factories create serializable outbound frames", () => {
   const heartbeat = createHeartbeatFrame();
   const response = createResponseFrame("request-1", {
     statusCode: 204,
@@ -78,16 +86,16 @@ Deno.test("frame factories create serializable outbound frames", () => {
     message: "Request failed",
   });
 
-  assertEquals(heartbeat.type, "heartbeat");
-  assertEquals(response, {
+  expect(heartbeat.type).toStrictEqual("heartbeat");
+  expect(response).toStrictEqual({
     type: "response",
     requestId: "request-1",
     response: { statusCode: 204, headers: { "x-test": ["ok"] } },
   });
-  assertEquals(error, {
+  expect(error).toStrictEqual({
     type: "response",
     requestId: "request-2",
     error: { code: "FAILED", message: "Request failed" },
   });
-  assertEquals(serializeFrame(error), JSON.stringify(error));
+  expect(serializeFrame(error)).toStrictEqual(JSON.stringify(error));
 });

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 import type { ConnectorConfig } from "./config.ts";
 import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
 import { createLogger } from "./logger.ts";
@@ -27,9 +27,11 @@ const baseConfig: ConnectorConfig = {
   maxConcurrentRequests: 100,
   drainTimeoutMs: 50,
   logLevel: "error",
-  forwarding: [{
-    target: "^https://internal[.]example(?:/.*)?$",
-  }],
+  forwarding: [
+    {
+      target: "^https://internal[.]example(?:/.*)?$",
+    },
+  ],
 };
 
 const silentLogger = createLogger("error", {
@@ -39,20 +41,22 @@ const silentLogger = createLogger("error", {
   warn: () => undefined,
 });
 
-Deno.test("computeBackoffDelay is deterministic with no jitter and grows then saturates", () => {
+test("computeBackoffDelay is deterministic with no jitter and grows then saturates", () => {
   const initial = 1_000;
   const max = 30_000;
 
-  assertEquals(computeBackoffDelay(0, initial, max, 0), 0);
-  assertEquals(computeBackoffDelay(1, initial, max, 0), 1_000);
-  assertEquals(computeBackoffDelay(2, initial, max, 0), 2_000);
-  assertEquals(computeBackoffDelay(3, initial, max, 0), 4_000);
+  expect(computeBackoffDelay(0, initial, max, 0)).toStrictEqual(0);
+  expect(computeBackoffDelay(1, initial, max, 0)).toStrictEqual(1_000);
+  expect(computeBackoffDelay(2, initial, max, 0)).toStrictEqual(2_000);
+  expect(computeBackoffDelay(3, initial, max, 0)).toStrictEqual(4_000);
   // Saturates at max and never overflows for huge attempt counts.
-  assertEquals(computeBackoffDelay(100, initial, max, 0), 30_000);
-  assert(Number.isFinite(computeBackoffDelay(1_000, initial, max, 0)));
+  expect(computeBackoffDelay(100, initial, max, 0)).toStrictEqual(30_000);
+  expect(
+    Number.isFinite(computeBackoffDelay(1_000, initial, max, 0)),
+  ).toBeTruthy();
 });
 
-Deno.test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]", () => {
+test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]", () => {
   const initial = 1_000;
   const max = 30_000;
   const ratio = 0.5;
@@ -60,16 +64,16 @@ Deno.test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]
   for (const rng of [() => 0, () => 0.5, () => 0.999]) {
     const value = computeBackoffDelay(3, initial, max, ratio, rng);
     const cap = 4_000;
-    assert(value >= cap * (1 - ratio), `${value} below floor`);
-    assert(value <= cap, `${value} above cap`);
+    expect(value >= cap * (1 - ratio)).toBeTruthy();
+    expect(value <= cap).toBeTruthy();
   }
 
   // rng() === 0 yields the floor; full jitter ratio yields [0, cap].
-  assertEquals(computeBackoffDelay(1, initial, max, 1, () => 0), 0);
-  assertEquals(computeBackoffDelay(1, initial, max, 1, () => 1), 1_000);
+  expect(computeBackoffDelay(1, initial, max, 1, () => 0)).toStrictEqual(0);
+  expect(computeBackoffDelay(1, initial, max, 1, () => 1)).toStrictEqual(1_000);
 });
 
-Deno.test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes on abort", async () => {
+test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes on abort", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     const abortController = new AbortController();
@@ -86,14 +90,16 @@ Deno.test("runCloudWebSocketClient opens sockets, sends heartbeats, and closes o
     abortController.abort();
     await client;
 
-    assertEquals(socket.url, "wss://cloud.example/ws");
-    assertEquals(socket.options?.headers?.Authorization, "Bearer access-token");
-    assertEquals(socket.closed, true);
-    assertEquals(JSON.parse(socket.sent[0]).type, "heartbeat");
+    expect(socket.url).toStrictEqual("wss://cloud.example/ws");
+    expect(socket.options?.headers?.Authorization).toStrictEqual(
+      "Bearer access-token",
+    );
+    expect(socket.closed).toStrictEqual(true);
+    expect(JSON.parse(socket.sent[0]).type).toStrictEqual("heartbeat");
   });
 });
 
-Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change", async () => {
+test("ReloadableWebSocketClient reconnects when YAML socket settings change", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     const abortController = new AbortController();
@@ -113,9 +119,8 @@ Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change
     });
     await waitUntil(() => FakeWebSocket.instances.length === 2);
 
-    assertEquals(FakeWebSocket.instances[0].closed, true);
-    assertEquals(
-      FakeWebSocket.instances[1].url,
+    expect(FakeWebSocket.instances[0].closed).toStrictEqual(true);
+    expect(FakeWebSocket.instances[1].url).toStrictEqual(
       "wss://cloud.example/reloaded",
     );
 
@@ -123,24 +128,26 @@ Deno.test("ReloadableWebSocketClient reconnects when YAML socket settings change
       ...baseConfig,
       websocketUrl: "wss://cloud.example/reloaded",
       heartbeatIntervalMs: 5,
-      forwarding: [{
-        target: "^https://replacement[.]example(?:/.*)?$",
-      }],
+      forwarding: [
+        {
+          target: "^https://replacement[.]example(?:/.*)?$",
+        },
+      ],
     });
     await delayMs(10);
-    assertEquals(FakeWebSocket.instances.length, 2);
+    expect(FakeWebSocket.instances.length).toStrictEqual(2);
 
     abortController.abort();
     await running;
   });
 });
 
-Deno.test("ReloadableWebSocketClient drains accepted requests before reconnecting", async () => {
+test("ReloadableWebSocketClient drains accepted requests before reconnecting", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     let release!: () => void;
     let started = false;
-    const gate = new Promise<void>((resolve) => release = resolve);
+    const gate = new Promise<void>((resolve) => (release = resolve));
     const runtime = new ConnectorRuntime({
       protocolExecutor: {
         execute: async () => {
@@ -161,27 +168,31 @@ Deno.test("ReloadableWebSocketClient drains accepted requests before reconnectin
     const running = client.run(abortController.signal);
     await waitUntil(() => FakeWebSocket.instances.length === 1);
     const socket = FakeWebSocket.instances[0];
-    socket.receive(JSON.stringify({
-      type: "request",
-      requestId: "in-flight",
-      request: { method: "GET", url: "https://internal.example/items" },
-    }));
+    socket.receive(
+      JSON.stringify({
+        type: "request",
+        requestId: "in-flight",
+        request: { method: "GET", url: "https://internal.example/items" },
+      }),
+    );
     await waitUntil(() => started);
 
     client.replace({ ...baseConfig, websocketUrl: "wss://cloud.example/new" });
     await delayMs(10);
-    assertEquals(socket.closed, false);
+    expect(socket.closed).toStrictEqual(false);
     release();
     await waitUntil(() => FakeWebSocket.instances.length === 2);
-    assertEquals(socket.closed, true);
-    assertEquals(JSON.parse(socket.sent.at(-1)!).requestId, "in-flight");
+    expect(socket.closed).toStrictEqual(true);
+    expect(JSON.parse(socket.sent.at(-1)!).requestId).toStrictEqual(
+      "in-flight",
+    );
 
     abortController.abort();
     await running;
   });
 });
 
-Deno.test("runCloudWebSocketClient never rejects when authentication keeps failing", async () => {
+test("runCloudWebSocketClient never rejects when authentication keeps failing", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
     const abortController = new AbortController();
@@ -197,11 +208,11 @@ Deno.test("runCloudWebSocketClient never rejects when authentication keeps faili
     abortController.abort();
     // Resolves (does not throw) => the supervision loop is uncrashable.
     await client;
-    assertEquals(FakeWebSocket.instances.length, 0);
+    expect(FakeWebSocket.instances.length).toStrictEqual(0);
   });
 });
 
-Deno.test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-flap)", async () => {
+test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-flap)", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openThenClose";
     const abortController = new AbortController();
@@ -218,12 +229,12 @@ Deno.test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-fl
     await waitUntil(() => status.reconnectAttempt >= 3, 400);
     abortController.abort();
     await client;
-    assert(status.reconnectAttempt >= 3);
-    assert(FakeWebSocket.instances.length >= 3);
+    expect(status.reconnectAttempt >= 3).toBeTruthy();
+    expect(FakeWebSocket.instances.length >= 3).toBeTruthy();
   });
 });
 
-Deno.test("runCloudWebSocketClient force-closes a half-open socket via the watchdog", async () => {
+test("runCloudWebSocketClient force-closes a half-open socket via the watchdog", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openSilent";
     const abortController = new AbortController();
@@ -243,11 +254,11 @@ Deno.test("runCloudWebSocketClient force-closes a half-open socket via the watch
     await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
     abortController.abort();
     await client;
-    assertEquals(FakeWebSocket.instances[0].closed, true);
+    expect(FakeWebSocket.instances[0].closed).toStrictEqual(true);
   });
 });
 
-Deno.test("runCloudWebSocketClient force-settles when close never arrives", async () => {
+test("runCloudWebSocketClient force-settles when close never arrives", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openSilentNoClose";
     const abortController = new AbortController();
@@ -266,13 +277,13 @@ Deno.test("runCloudWebSocketClient force-settles when close never arrives", asyn
     await waitUntil(() => FakeWebSocket.instances[0]?.closed === true, 400);
     FakeWebSocket.behavior = "open";
     await waitUntil(() => FakeWebSocket.instances.length >= 2, 1_500);
-    assertEquals(status.connectionState, "open");
+    expect(status.connectionState).toStrictEqual("open");
     abortController.abort();
     await client;
   });
 });
 
-Deno.test("runCloudWebSocketClient keeps a socket with inbound traffic open", async () => {
+test("runCloudWebSocketClient keeps a socket with inbound traffic open", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openWithInbound";
     const abortController = new AbortController();
@@ -291,15 +302,15 @@ Deno.test("runCloudWebSocketClient keeps a socket with inbound traffic open", as
     await waitUntil(() => status.connectionState === "open");
     // Let several watchdog windows elapse while inbound frames keep arriving.
     await delayMs(60);
-    assertEquals(FakeWebSocket.instances.length, 1);
-    assertEquals(FakeWebSocket.instances[0].closed, false);
+    expect(FakeWebSocket.instances.length).toStrictEqual(1);
+    expect(FakeWebSocket.instances[0].closed).toStrictEqual(false);
 
     abortController.abort();
     await client;
   });
 });
 
-Deno.test("runCloudWebSocketClient retries when the socket never opens (connect timeout)", async () => {
+test("runCloudWebSocketClient retries when the socket never opens (connect timeout)", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "neverOpen";
     const abortController = new AbortController();
@@ -314,11 +325,11 @@ Deno.test("runCloudWebSocketClient retries when the socket never opens (connect 
     await waitUntil(() => FakeWebSocket.instances.length >= 2, 400);
     abortController.abort();
     await client;
-    assertEquals(FakeWebSocket.instances[0].closed, true);
+    expect(FakeWebSocket.instances[0].closed).toStrictEqual(true);
   });
 });
 
-Deno.test("runCloudWebSocketClient does not hang when aborted during the token fetch", async () => {
+test("runCloudWebSocketClient does not hang when aborted during the token fetch", async () => {
   const originalFetch = globalThis.fetch;
   const originalWebSocket = globalThis.WebSocket;
   const abortController = new AbortController();
@@ -329,9 +340,11 @@ Deno.test("runCloudWebSocketClient does not hang when aborted during the token f
       if (url === "https://cloud.example/.well-known") {
         // Shutdown arrives while the token is still being fetched.
         abortController.abort();
-        return Promise.resolve(Response.json({
-          auth: { issuer: "https://cloud.example/realms/serviceware" },
-        }));
+        return Promise.resolve(
+          Response.json({
+            auth: { issuer: "https://cloud.example/realms/serviceware" },
+          }),
+        );
       }
       return Promise.resolve(Response.json({ access_token: "access-token" }));
     },
@@ -352,7 +365,7 @@ Deno.test("runCloudWebSocketClient does not hang when aborted during the token f
       createRuntimeStatus(),
       silentLogger,
     );
-    assertEquals(FakeWebSocket.instances.length, 0);
+    expect(FakeWebSocket.instances.length).toStrictEqual(0);
   } finally {
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
@@ -376,9 +389,9 @@ function createRuntime(): ConnectorRuntime {
 
 /** Stubs fetch (token endpoint) and WebSocket, restoring them afterwards. */
 async function withFakeCloud(
-  run: (
-    ctx: { status: ReturnType<typeof createRuntimeStatus> },
-  ) => Promise<void>,
+  run: (ctx: {
+    status: ReturnType<typeof createRuntimeStatus>;
+  }) => Promise<void>,
 ): Promise<void> {
   const originalFetch = globalThis.fetch;
   const originalWebSocket = globalThis.WebSocket;
@@ -387,17 +400,17 @@ async function withFakeCloud(
     value: (input: string | URL | Request) => {
       const url = input instanceof Request ? input.url : input.toString();
       if (url === "https://cloud.example/.well-known") {
-        return Promise.resolve(Response.json({
-          auth: { issuer: "https://cloud.example/realms/serviceware" },
-        }));
+        return Promise.resolve(
+          Response.json({
+            auth: { issuer: "https://cloud.example/realms/serviceware" },
+          }),
+        );
       }
       if (
         url ===
-          "https://cloud.example/realms/serviceware/protocol/openid-connect/token"
+        "https://cloud.example/realms/serviceware/protocol/openid-connect/token"
       ) {
-        return Promise.resolve(
-          Response.json({ access_token: "access-token" }),
-        );
+        return Promise.resolve(Response.json({ access_token: "access-token" }));
       }
       return Promise.resolve(new Response(null, { status: 404 }));
     },

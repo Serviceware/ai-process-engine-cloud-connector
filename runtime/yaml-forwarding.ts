@@ -106,7 +106,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     return new YamlForwardingExecutor(
       rules,
       options.configPath,
-      options.env ?? Deno.env.toObject(),
+      options.env ?? definedEnvironment(),
       logger,
       nextFetch,
       nextFetch,
@@ -131,7 +131,8 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
 
     const forwarding = mergeForwardingConfigs(matchingRules);
     if (
-      forwarding.methods && !forwarding.methods.includes(frame.request.method)
+      forwarding.methods &&
+      !forwarding.methods.includes(frame.request.method)
     ) {
       throw new RuntimeError(
         "METHOD_NOT_ALLOWED",
@@ -150,14 +151,12 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       headers: { ...frame.request.headers },
     };
     if (!forwarding.request?.forwardIncomingCredentials) {
-      for (
-        const name of [
-          "authorization",
-          "cookie",
-          "cookie2",
-          "proxy-authorization",
-        ]
-      ) {
+      for (const name of [
+        "authorization",
+        "cookie",
+        "cookie2",
+        "proxy-authorization",
+      ]) {
         deleteHeader(forwardedRequest.headers ?? {}, name);
       }
     }
@@ -197,10 +196,11 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       upstreamResponse = await fetcher(finalUrl, {
         method: forwardedRequest.method,
         headers,
-        body: forwardedRequest.method === "GET" ||
-            forwardedRequest.method === "HEAD"
-          ? undefined
-          : forwardedRequest.body ?? undefined,
+        body:
+          forwardedRequest.method === "GET" ||
+          forwardedRequest.method === "HEAD"
+            ? undefined
+            : (forwardedRequest.body ?? undefined),
         signal: AbortSignal.timeout(timeout),
       });
     } catch (error) {
@@ -209,14 +209,14 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
         throw new RuntimeError(
           "TIMEOUT",
           `Forwarding request timed out after ${timeout}ms`,
-          { cause: error },
+          {
+            cause: error,
+          },
         );
       }
       throw new RuntimeError(
         "TARGET_REQUEST_ERROR",
-        `Forwarding request failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Forwarding request failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }
@@ -224,10 +224,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     let response: CloudConnectorHttpResponse = {
       statusCode: upstreamResponse.status,
       headers: headersToRecord(upstreamResponse.headers),
-      body: await readBoundedText(
-        upstreamResponse,
-        this.maxResponseBodyBytes,
-      ),
+      body: await readBoundedText(upstreamResponse, this.maxResponseBodyBytes),
     };
     if (forwarding.response) {
       response = applyYamlResponseForwardingConfig(
@@ -338,17 +335,19 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
         `OAuth2 token endpoint returned HTTP ${response.status}`,
       );
     }
-    const payload = await response.json() as Record<string, unknown>;
+    const payload = (await response.json()) as Record<string, unknown>;
     if (typeof payload.access_token !== "string" || !payload.access_token) {
       throw new RuntimeError(
         "TARGET_REQUEST_ERROR",
         "OAuth2 token response does not contain access_token",
       );
     }
-    const expiresIn = typeof payload.expires_in === "number" &&
-        Number.isFinite(payload.expires_in) && payload.expires_in > 0
-      ? payload.expires_in
-      : 300;
+    const expiresIn =
+      typeof payload.expires_in === "number" &&
+      Number.isFinite(payload.expires_in) &&
+      payload.expires_in > 0
+        ? payload.expires_in
+        : 300;
     this.oauthTokenCache.tokens.set(cacheKey, {
       token: payload.access_token,
       expiresAt: Date.now() + expiresIn * 1_000,
@@ -425,9 +424,8 @@ export function interpolate(
   template: string,
   context: YamlValueContext,
 ): string {
-  return template.replace(
-    /\{\{\s*([^}]+)\s*\}\}/g,
-    (_, expression: string) => resolveExpression(expression.trim(), context),
+  return template.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, expression: string) =>
+    resolveExpression(expression.trim(), context),
   );
 }
 
@@ -437,12 +435,12 @@ function mergeRequestConfig(
 ): RequestForwardingConfig {
   return {
     headers: mergeHeaderConfigs(current?.headers, next.headers),
-    pathPrefix: next.pathPrefix !== undefined
-      ? next.pathPrefix
-      : current?.pathPrefix,
-    forwardIncomingCredentials: next.forwardIncomingCredentials !== undefined
-      ? next.forwardIncomingCredentials
-      : current?.forwardIncomingCredentials,
+    pathPrefix:
+      next.pathPrefix !== undefined ? next.pathPrefix : current?.pathPrefix,
+    forwardIncomingCredentials:
+      next.forwardIncomingCredentials !== undefined
+        ? next.forwardIncomingCredentials
+        : current?.forwardIncomingCredentials,
     auth: next.auth,
   };
 }
@@ -482,14 +480,15 @@ function mergeHeaderConfigs(
       operations.set(key, {
         kind: "add",
         name,
-        value: previous?.kind === "add"
-          ? [
-            ...(Array.isArray(previous.value)
-              ? previous.value
-              : [previous.value ?? ""]),
-            ...values,
-          ]
-          : values,
+        value:
+          previous?.kind === "add"
+            ? [
+                ...(Array.isArray(previous.value)
+                  ? previous.value
+                  : [previous.value ?? ""]),
+                ...values,
+              ]
+            : values,
       });
     }
   }
@@ -662,6 +661,14 @@ function encodeBase64(value: string): string {
   return btoa(binary);
 }
 
+function definedEnvironment(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+}
+
 function findHeader(
   headers: Record<string, string[]>,
   name: string,
@@ -690,17 +697,16 @@ function headersToRecord(headers: Headers): Record<string, string[]> {
 }
 
 function removeHopByHopHeaders(headers: Headers): void {
-  for (
-    const name of [
-      "host",
-      "connection",
-      "keep-alive",
-      "proxy-authenticate",
-      "proxy-authorization",
-      "te",
-      "trailer",
-      "transfer-encoding",
-      "upgrade",
-    ]
-  ) headers.delete(name);
+  for (const name of [
+    "host",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+  ])
+    headers.delete(name);
 }

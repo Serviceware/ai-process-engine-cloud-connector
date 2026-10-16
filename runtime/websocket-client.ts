@@ -216,25 +216,29 @@ async function openWebSocket(
       closeRequested = true;
       status.connectionState = "disconnected";
       clearHeartbeat();
-      void attachment.drain(config.drainTimeoutMs).then((drained) => {
-        if (!drained) {
-          logger.warn(
-            `Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`,
-          );
-        }
-        try {
-          socket.close();
-        } catch {
-          // already closing/closed
-        }
-        if (!settled) {
-          forceSettleTimer = setTimeout(() => {
-            const stableOpen = opened &&
-              (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
-            settle({ stableOpen });
-          }, 1_000);
-        }
-      }).catch(fail);
+      void attachment
+        .drain(config.drainTimeoutMs)
+        .then((drained) => {
+          if (!drained) {
+            logger.warn(
+              `Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`,
+            );
+          }
+          try {
+            socket.close();
+          } catch {
+            // already closing/closed
+          }
+          if (!settled) {
+            forceSettleTimer = setTimeout(() => {
+              const stableOpen =
+                opened &&
+                Date.now() - openedAt >= config.reconnectStableThresholdMs;
+              settle({ stableOpen });
+            }, 1_000);
+          }
+        })
+        .catch(fail);
     };
     const abort = () => closeSocket();
 
@@ -316,8 +320,8 @@ async function openWebSocket(
           if (config.heartbeatTimeoutFactor > 0) {
             const lastInbound = status.lastInboundAt ?? openedAt;
             const silentFor = now - lastInbound;
-            const limit = config.heartbeatIntervalMs *
-              config.heartbeatTimeoutFactor;
+            const limit =
+              config.heartbeatIntervalMs * config.heartbeatTimeoutFactor;
             if (silentFor > limit) {
               logger.warn(
                 `Cloud Connector WebSocket silent for ${silentFor}ms; reconnecting`,
@@ -345,8 +349,8 @@ async function openWebSocket(
     });
 
     socket.addEventListener("close", () => {
-      const stableOpen = opened &&
-        (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
+      const stableOpen =
+        opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
       settle({ stableOpen });
     });
   });

@@ -39,7 +39,13 @@ revealing internal addresses, credentials, or stack traces.
 
 ## Runtime permissions and dependencies
 
-Keep the production Deno permission set limited to the network, environment, and
-read access needed by the connector. Add dependencies only when the standard
-library or a small local implementation is insufficient. Pin dependencies in
-`deno.lock` and preserve frozen resolution in CI and the container build.
+The production container runs Node.js with the permission model
+(`--permission`) and grants only file reads of the application (`/app/`) and the
+mounted configuration (`/config/`). File writes, child processes, worker
+threads, native addons, and WASI stay denied. The Node.js 24 permission model
+does not restrict network or environment access; the outbound URL policy is the
+network boundary. Keep the granted read paths minimal.
+
+Add dependencies only when the standard library or a small local implementation
+is insufficient. Pin dependencies in `package-lock.json` and preserve frozen
+resolution (`npm ci`) in CI and the container build.

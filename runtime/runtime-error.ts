@@ -3,11 +3,7 @@ import type { CloudConnectorError } from "./generated/models.ts";
 export class RuntimeError extends Error {
   readonly code: string;
 
-  constructor(
-    code: string,
-    message: string,
-    options?: ErrorOptions,
-  ) {
+  constructor(code: string, message: string, options?: ErrorOptions) {
     super(message, options);
     this.code = code;
     this.name = "RuntimeError";

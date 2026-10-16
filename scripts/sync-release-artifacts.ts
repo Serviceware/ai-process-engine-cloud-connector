@@ -1,4 +1,5 @@
-import { join } from "@std/path";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export type SyncReleaseArtifactsOptions = {
   root?: string;
@@ -13,16 +14,9 @@ const textExtensions = [".md", ".yml", ".yaml"];
 export async function syncReleaseArtifacts(
   options: SyncReleaseArtifactsOptions = {},
 ): Promise<string[]> {
-  const root = options.root ?? Deno.cwd();
+  const root = options.root ?? process.cwd();
   const checkOnly = options.checkOnly ?? false;
-  const denoJson = JSON.parse(await Deno.readTextFile(join(root, "deno.json")));
-  const version = denoJson.version;
-
-  if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(
-      `deno.json version must use MAJOR.MINOR.PATCH, got ${version}`,
-    );
-  }
+  const version = await readVersion(root);
 
   const expectedImage = `ghcr.io/serviceware/cloud-connector:${version}`;
   const changedFiles: string[] = [];
@@ -30,7 +24,7 @@ export async function syncReleaseArtifacts(
 
   for (const relativePath of imageReferenceFiles) {
     const path = join(root, relativePath);
-    const original = await Deno.readTextFile(path);
+    const original = await readFile(path, "utf8");
     const matches = [...original.matchAll(imagePattern)];
     if (matches.length !== 1) {
       throw new Error(
@@ -43,13 +37,13 @@ export async function syncReleaseArtifacts(
       if (checkOnly) {
         throw new Error(`${relativePath} must reference ${expectedImage}`);
       }
-      await Deno.writeTextFile(path, updated);
+      await writeFile(path, updated);
       changedFiles.push(relativePath);
     }
   }
 
   const changelogPath = "CHANGELOG.md";
-  const changelog = await Deno.readTextFile(join(root, changelogPath));
+  const changelog = await readFile(join(root, changelogPath), "utf8");
   const escapedVersion = escapeRegExp(version);
   const datedHeading = new RegExp(
     `^## ${escapedVersion} - \\d{4}-\\d{2}-\\d{2}$`,
@@ -68,34 +62,51 @@ export async function syncReleaseArtifacts(
       throw new Error(`${changelogPath} has no ${version} release heading`);
     }
 
-    const releaseDate = options.releaseDate ??
-      new Date().toISOString().slice(0, 10);
+    const releaseDate =
+      options.releaseDate ?? new Date().toISOString().slice(0, 10);
     const updated = changelog.replace(
       undatedHeading,
       `## ${version} - ${releaseDate}`,
     );
-    await Deno.writeTextFile(join(root, changelogPath), updated);
+    await writeFile(join(root, changelogPath), updated);
     changedFiles.push(changelogPath);
   }
 
   return changedFiles;
 }
 
+async function readVersion(root: string): Promise<string> {
+  const packageJson = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  );
+  const version = packageJson.version;
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(
+      `package.json version must use MAJOR.MINOR.PATCH, got ${version}`,
+    );
+  }
+  return version;
+}
+
+function isNotFound(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
 async function discoverImageReferenceFiles(root: string): Promise<string[]> {
   const candidates = ["README.md"];
   for (const directory of ["docs", "templates"]) {
-    candidates.push(...await listTextFiles(root, directory));
+    candidates.push(...(await listTextFiles(root, directory)));
   }
 
   const references: string[] = [];
   for (const relativePath of candidates) {
     try {
-      const content = await Deno.readTextFile(join(root, relativePath));
+      const content = await readFile(join(root, relativePath), "utf8");
       if ([...content.matchAll(imagePattern)].length > 0) {
         references.push(relativePath);
       }
     } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) throw error;
+      if (!isNotFound(error)) throw error;
     }
   }
   return references.sort();
@@ -107,19 +118,22 @@ async function listTextFiles(
 ): Promise<string[]> {
   const result: string[] = [];
   try {
-    for await (const entry of Deno.readDir(join(root, relativeDirectory))) {
+    const entries = await readdir(join(root, relativeDirectory), {
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
       const relativePath = `${relativeDirectory}/${entry.name}`;
-      if (entry.isDirectory) {
-        result.push(...await listTextFiles(root, relativePath));
+      if (entry.isDirectory()) {
+        result.push(...(await listTextFiles(root, relativePath)));
       } else if (
-        entry.isFile &&
+        entry.isFile() &&
         textExtensions.some((extension) => entry.name.endsWith(extension))
       ) {
         result.push(relativePath);
       }
     }
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    if (!isNotFound(error)) throw error;
   }
   return result;
 }
@@ -129,9 +143,9 @@ function escapeRegExp(value: string): string {
 }
 
 if (import.meta.main) {
-  const checkOnly = Deno.args.includes("--check");
+  const checkOnly = process.argv.includes("--check");
   const changedFiles = await syncReleaseArtifacts({ checkOnly });
-  const version = JSON.parse(await Deno.readTextFile("deno.json")).version;
+  const version = await readVersion(process.cwd());
   if (changedFiles.length > 0) {
     console.log(
       `Updated release artifacts for ${version}: ${changedFiles.join(", ")}`,

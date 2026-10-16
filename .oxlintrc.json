@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "vitest", "node"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "vitest/no-conditional-expect": "off"
+  },
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["runtime/generated/**"]
+}

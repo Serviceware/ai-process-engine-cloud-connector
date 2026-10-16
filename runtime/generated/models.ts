@@ -5,8 +5,8 @@ export { CLOUD_CONNECTOR_RESPONSE_FRAME_TYPE_VALUES } from "./models/cloud-conne
 
 export type { CloudConnectorError } from "./models/cloud-connector-error.ts";
 export type {
-  _CloudConnectorFrameBase,
   CloudConnectorFrame,
+  _CloudConnectorFrameBase,
 } from "./models/cloud-connector-frame.ts";
 export type { CloudConnectorHeartbeatFrameType } from "./models/cloud-connector-heartbeat-frame-type.ts";
 export type { CloudConnectorHeartbeatFrame } from "./models/cloud-connector-heartbeat-frame.ts";
@@ -14,8 +14,8 @@ export type { CloudConnectorHttpMethod } from "./models/cloud-connector-http-met
 export type { CloudConnectorHttpRequest } from "./models/cloud-connector-http-request.ts";
 export type { CloudConnectorHttpResponse } from "./models/cloud-connector-http-response.ts";
 export type {
-  _CloudConnectorMessageFrameBase,
   CloudConnectorMessageFrame,
+  _CloudConnectorMessageFrameBase,
 } from "./models/cloud-connector-message-frame.ts";
 export type { CloudConnectorRequestFrameType } from "./models/cloud-connector-request-frame-type.ts";
 export type { CloudConnectorRequestFrame } from "./models/cloud-connector-request-frame.ts";

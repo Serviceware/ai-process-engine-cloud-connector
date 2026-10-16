@@ -1,4 +1,4 @@
-FROM denoland/deno:2.8.1
+FROM node:24.22.0-bookworm-slim
 
 LABEL org.opencontainers.image.title="Serviceware AI Process Engine - Cloud Connector" \
     org.opencontainers.image.description="Connects Serviceware AI Process Engine to internal HTTP services" \
@@ -9,15 +9,14 @@ LABEL org.opencontainers.image.title="Serviceware AI Process Engine - Cloud Conn
 # Create app directory
 WORKDIR /app
 
-# Keep production dependency resolution identical to local development and CI.
-COPY deno.json deno.lock ./
+# Install production dependencies exactly as locked.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
 COPY runtime/ ./runtime/
 
-# Cache dependencies without allowing the lock file to change.
-RUN deno cache --frozen --config deno.json runtime/main.ts
-
-# Non-root user (Deno image uses uid 1000)
-USER deno
+# Non-root user (Node image uses uid 1000)
+USER node
 
 # Expose default port
 EXPOSE 8080
@@ -26,7 +25,9 @@ EXPOSE 8080
 # start-period covers the initial WebSocket connect so the container is not
 # marked unhealthy while it is still establishing the first connection.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-    CMD deno run --allow-net runtime/health-check.ts || exit 1
+    CMD node --permission --allow-fs-read=/app/ runtime/health-check.ts || exit 1
 
-# Start the connector
-CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "runtime/main.ts"]
+# Start the connector. The permission model limits file reads to the
+# application and the mounted configuration; no writes, child processes,
+# workers, or native addons.
+CMD ["node", "--permission", "--allow-fs-read=/app/", "--allow-fs-read=/config/", "runtime/main.ts"]

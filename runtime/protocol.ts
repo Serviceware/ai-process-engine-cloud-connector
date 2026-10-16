@@ -38,7 +38,8 @@ export function parseMessageFrame(data: unknown): CloudConnectorMessageFrame {
   }
 
   if (
-    parsed.type !== "request" && parsed.type !== "response" &&
+    parsed.type !== "request" &&
+    parsed.type !== "response" &&
     parsed.type !== "heartbeat"
   ) {
     throw new RuntimeError(
@@ -50,7 +51,8 @@ export function parseMessageFrame(data: unknown): CloudConnectorMessageFrame {
   if (parsed.type === "request") validateRequestFrame(parsed);
   if (parsed.type === "response") validateResponseFrame(parsed);
   if (
-    parsed.type === "heartbeat" && parsed.sentAt !== undefined &&
+    parsed.type === "heartbeat" &&
+    parsed.sentAt !== undefined &&
     typeof parsed.sentAt !== "string"
   ) {
     invalidFrame("Heartbeat frame sentAt must be a string when present");
@@ -139,7 +141,8 @@ function validateRequestFrame(frame: Record<string, unknown>): void {
     }
   }
   if (
-    request.body !== undefined && request.body !== null &&
+    request.body !== undefined &&
+    request.body !== null &&
     typeof request.body !== "string"
   ) {
     invalidFrame("Request frame request.body must be a string or null");
@@ -148,7 +151,8 @@ function validateRequestFrame(frame: Record<string, unknown>): void {
     request.timeoutSeconds !== undefined &&
     (typeof request.timeoutSeconds !== "number" ||
       !Number.isInteger(request.timeoutSeconds) ||
-      request.timeoutSeconds < 1 || request.timeoutSeconds > 90)
+      request.timeoutSeconds < 1 ||
+      request.timeoutSeconds > 90)
   ) {
     invalidFrame(
       "Request frame request.timeoutSeconds must be an integer from 1 to 90",
@@ -164,8 +168,10 @@ function validateResponseFrame(frame: Record<string, unknown>): void {
     }
     const statusCode = (frame.response as Record<string, unknown>).statusCode;
     if (
-      typeof statusCode !== "number" || !Number.isInteger(statusCode) ||
-      statusCode < 100 || statusCode > 599
+      typeof statusCode !== "number" ||
+      !Number.isInteger(statusCode) ||
+      statusCode < 100 ||
+      statusCode > 599
     ) {
       invalidFrame(
         "Response frame response.statusCode must be an HTTP status code",

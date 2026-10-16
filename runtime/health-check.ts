@@ -17,5 +17,5 @@ export async function checkHealth(
 }
 
 if (import.meta.main) {
-  Deno.exit(await checkHealth());
+  process.exit(await checkHealth());
 }
