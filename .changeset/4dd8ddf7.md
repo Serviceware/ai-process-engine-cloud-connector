@@ -11,3 +11,7 @@ files must be readable by uid 1000. Trust an internal certificate authority
 with `NODE_EXTRA_CA_CERTS` instead of `DENO_CERT`. `HTTP_PROXY`, `HTTPS_PROXY`,
 and `NO_PROXY` still apply; `HTTP_PROXY` now also covers HTTPS targets when
 `HTTPS_PROXY` is unset, and `NO_PROXY` does not accept CIDR ranges.
+
+URLs with embedded credentials are no longer accepted for
+`CLOUD_CONNECTOR_HOST` or OAuth2 issuers. When the WebSocket connection cannot
+be opened, the log no longer names the network reason.

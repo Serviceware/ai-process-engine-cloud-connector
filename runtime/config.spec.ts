@@ -314,7 +314,7 @@ forwarding:
   }
 });
 
-test("parseVolumeConfig keeps values js-yaml read as strings", () => {
+test("parseVolumeConfig keeps leading-zero decimals and 0o octal as strings", () => {
   const config = parseVolumeConfig(`
 connection: {}
 forwarding:

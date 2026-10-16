@@ -144,6 +144,8 @@ test("superviseHttpServer rebinds after a server error and a later close", async
     await vi.waitFor(() => expect(rebound[0]?.listening).toBeTruthy(), {
       timeout: 5_000,
     });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(rebound).toHaveLength(1);
     rebound[0].close();
     await vi.waitFor(() => expect(rebound[1]?.listening).toBeTruthy(), {
       timeout: 5_000,

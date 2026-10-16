@@ -52,7 +52,8 @@ The runtime binds `0.0.0.0:8080` only for probes:
   connection and reload status.
 
 All other paths return `404`, request targets that are not a path return
-`400`, and `CONNECT` and `TRACE` return `405`. Do not add proxy traffic to this local interface.
+`400`, and `CONNECT` and `TRACE` return `405`. Do not add proxy traffic to
+this local interface.
 
 ## Contracts and generated code
 

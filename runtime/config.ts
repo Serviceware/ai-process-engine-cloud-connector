@@ -222,8 +222,8 @@ export async function loadVolumeConfig(path: string): Promise<VolumeConfig> {
 }
 
 /**
- * Accepts the YAML 1.1 integer forms of the js-yaml based parser: digit
- * separators, `0b` binary, and leading-zero octal.
+ * Accepts YAML 1.1 integer forms: digit separators, `0b` binary, `0x` hex,
+ * and leading-zero octal.
  */
 const yaml11Integer: ScalarTag = {
   tag: "tag:yaml.org,2002:int",
@@ -232,7 +232,10 @@ const yaml11Integer: ScalarTag = {
   resolve: resolveYaml11Integer,
 };
 
-/** Leading-zero decimals and `0o` octal are YAML 1.2 integers but js-yaml strings. */
+/**
+ * Keeps leading-zero decimals such as `08` and `0o` octal as strings; YAML 1.2
+ * would read them as integers.
+ */
 const yaml11String: ScalarTag = {
   tag: "tag:yaml.org,2002:str",
   default: true,
