@@ -5,11 +5,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["runtime/**/*.ts", "scripts/**/*.ts"],
-      exclude: [
-        "**/*.spec.ts",
-        "runtime/generated/**",
-        "runtime/generate-api.ts",
-      ],
+      exclude: ["**/*.spec.ts", "runtime/generated/**", "runtime/generate-api.ts"],
       reporter: ["text", "lcov"],
     },
     projects: [

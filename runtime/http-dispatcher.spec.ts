@@ -3,10 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fetch } from "undici";
 import { afterEach, expect, test, vi } from "vitest";
-import {
-  createHttpDispatcher,
-  httpDispatcherOptions,
-} from "./http-dispatcher.ts";
+import { createHttpDispatcher, httpDispatcherOptions } from "./http-dispatcher.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -18,10 +18,7 @@ test("generateAccessToken resolves issuer and requests a client credentials toke
         );
       }
 
-      if (
-        url ===
-        "https://cloud.example/realms/serviceware/protocol/openid-connect/token"
-      ) {
+      if (url === "https://cloud.example/realms/serviceware/protocol/openid-connect/token") {
         return Promise.resolve(Response.json({ access_token: "access-token" }));
       }
 
@@ -39,9 +36,7 @@ test("generateAccessToken resolves issuer and requests a client credentials toke
     expect(accessToken).toStrictEqual("access-token");
     expect(calls.length).toStrictEqual(2);
     expect(calls[0].url).toStrictEqual("https://cloud.example/.well-known");
-    expect(calls[1].url).toStrictEqual(
-      "https://cloud.example/realms/serviceware/protocol/openid-connect/token",
-    );
+    expect(calls[1].url).toStrictEqual("https://cloud.example/realms/serviceware/protocol/openid-connect/token");
     expect(calls[1].init?.method).toStrictEqual("POST");
     expect(calls[1].init?.redirect).toStrictEqual("error");
     expect(calls[1].init?.headers).toStrictEqual({
@@ -140,9 +135,7 @@ test("generateAccessToken rejects malformed issuer URLs before sending credentia
           return Promise.resolve(Response.json({ auth: { issuer } }));
         },
       }),
-    ).rejects.toThrow(
-      "must not contain credentials, query parameters, or a fragment",
-    );
+    ).rejects.toThrow("must not contain credentials, query parameters, or a fragment");
     expect(calls).toStrictEqual(1);
   }
 });

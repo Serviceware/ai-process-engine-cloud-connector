@@ -50,23 +50,17 @@ test("ConfigReloader activates complete valid snapshots only", async () => {
     await writeFile(file, yaml("https://internal.example"));
     expect(await reloader.reload()).toStrictEqual(true);
     expect(status.lastReloadSucceeded).toStrictEqual(true);
-    expect(active?.forwarding[0].target).toStrictEqual(
-      "^https://internal.example(?:/.*)?$",
-    );
+    expect(active?.forwarding[0].target).toStrictEqual("^https://internal.example(?:/.*)?$");
 
     await writeFile(file, "connection: [invalid");
     expect(await reloader.reload()).toStrictEqual(false);
     expect(status.lastReloadSucceeded).toStrictEqual(false);
     expect(typeof status.lastReloadAt).toStrictEqual("number");
-    expect(active?.forwarding[0].target).toStrictEqual(
-      "^https://internal.example(?:/.*)?$",
-    );
+    expect(active?.forwarding[0].target).toStrictEqual("^https://internal.example(?:/.*)?$");
 
     await writeFile(file, yaml("https://replacement.example", 200));
     expect(await reloader.reload()).toStrictEqual(false);
-    expect(active?.forwarding[0].target).toStrictEqual(
-      "^https://internal.example(?:/.*)?$",
-    );
+    expect(active?.forwarding[0].target).toStrictEqual("^https://internal.example(?:/.*)?$");
   } finally {
     await rm(directory, { recursive: true });
   }
@@ -91,26 +85,14 @@ test("watchConfigFile reloads an atomically replaced volume file", async () => {
       },
       silentLogger,
     );
-    const watcher = watchConfigFile(
-      file,
-      reloader,
-      abortController.signal,
-      5,
-      5,
-    );
+    const watcher = watchConfigFile(file, reloader, abortController.signal, 5, 5);
 
     await delay(10);
     await writeFile(replacement, yaml("https://internal.example/v2"));
     await rename(replacement, file);
-    await waitUntil(
-      () =>
-        active?.forwarding[0].target ===
-        "^https://internal.example/v2(?:/.*)?$",
-    );
+    await waitUntil(() => active?.forwarding[0].target === "^https://internal.example/v2(?:/.*)?$");
     expect(activations >= 1).toStrictEqual(true);
-    expect(active?.forwarding[0].target).toStrictEqual(
-      "^https://internal.example/v2(?:/.*)?$",
-    );
+    expect(active?.forwarding[0].target).toStrictEqual("^https://internal.example/v2(?:/.*)?$");
 
     abortController.abort();
     await watcher;

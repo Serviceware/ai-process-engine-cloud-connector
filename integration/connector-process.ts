@@ -29,11 +29,7 @@ export class ConnectorProcess {
   private readonly child: ChildProcess;
   private running = true;
 
-  private constructor(
-    directory: string,
-    configPath: string,
-    child: ChildProcess,
-  ) {
+  private constructor(directory: string, configPath: string, child: ChildProcess) {
     this.directory = directory;
     this.configPath = configPath;
     this.child = child;
@@ -46,9 +42,7 @@ export class ConnectorProcess {
     });
   }
 
-  static async start(
-    options: ConnectorProcessOptions,
-  ): Promise<ConnectorProcess> {
+  static async start(options: ConnectorProcessOptions): Promise<ConnectorProcess> {
     const directory = await mkdtemp(join(tmpdir(), "cloud-connector-"));
     const configPath = join(directory, "cloud-connector.yml");
     await writeFile(configPath, options.config);
@@ -110,11 +104,7 @@ export class ConnectorProcess {
   }
 
   async waitForExit(): Promise<ConnectorExit> {
-    await waitFor(
-      () => (this.running ? undefined : true),
-      "Cloud Connector exit",
-      exitTimeoutMs,
-    );
+    await waitFor(() => (this.running ? undefined : true), "Cloud Connector exit", exitTimeoutMs);
     return await this.exited;
   }
 
@@ -130,9 +120,7 @@ function inheritedEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] =>
-        entry[1] !== undefined &&
-        !entry[0].startsWith("CLOUD_CONNECTOR_") &&
-        !proxyVariable.test(entry[0]),
+        entry[1] !== undefined && !entry[0].startsWith("CLOUD_CONNECTOR_") && !proxyVariable.test(entry[0]),
     ),
   );
 }

@@ -43,9 +43,7 @@ export function parseChangeset(content: string, path = "changeset"): Changeset {
     /^(?:"@serviceware\/cloud-connector"|'@serviceware\/cloud-connector'|@serviceware\/cloud-connector):\s*(patch|minor|major)$/,
   );
   if (!release) {
-    throw new Error(
-      `${path} must use "${packageName}": patch, minor, or major`,
-    );
+    throw new Error(`${path} must use "${packageName}": patch, minor, or major`);
   }
   if (summary === "") {
     throw new Error(`${path} must include a user-facing summary`);
@@ -73,11 +71,7 @@ async function listChangesetPaths(): Promise<string[]> {
   const paths: string[] = [];
   const entries = await readdir(changesetDirectory, { withFileTypes: true });
   for (const entry of entries) {
-    if (
-      entry.isFile() &&
-      entry.name.endsWith(".md") &&
-      entry.name !== "README.md"
-    ) {
+    if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
       paths.push(`${changesetDirectory}/${entry.name}`);
     }
   }
@@ -85,11 +79,7 @@ async function listChangesetPaths(): Promise<string[]> {
 }
 
 async function readChangesets(paths: string[]): Promise<Changeset[]> {
-  return await Promise.all(
-    paths.map(async (path) =>
-      parseChangeset(await readFile(path, "utf8"), path),
-    ),
-  );
+  return await Promise.all(paths.map(async (path) => parseChangeset(await readFile(path, "utf8"), path)));
 }
 
 async function addChangeset(args: string[]): Promise<void> {
@@ -103,19 +93,8 @@ async function addChangeset(args: string[]): Promise<void> {
     });
     try {
       const selected =
-        (
-          await ask(
-            readline,
-            "Release impact (patch, minor, or major) [patch]: ",
-          )
-        )
-          .trim()
-          .toLowerCase() || "patch";
-      if (
-        selected !== "patch" &&
-        selected !== "minor" &&
-        selected !== "major"
-      ) {
+        (await ask(readline, "Release impact (patch, minor, or major) [patch]: ")).trim().toLowerCase() || "patch";
+      if (selected !== "patch" && selected !== "minor" && selected !== "major") {
         throw new Error("Release impact must be patch, minor, or major");
       }
       const summary = (await ask(readline, "User-facing summary: ")).trim();
@@ -133,14 +112,10 @@ async function addChangeset(args: string[]): Promise<void> {
 
 /** `question()` never settles once stdin has ended. */
 async function ask(readline: Interface, query: string): Promise<string> {
-  const closed = new Promise<undefined>((resolve) =>
-    readline.once("close", () => resolve(undefined)),
-  );
+  const closed = new Promise<undefined>((resolve) => readline.once("close", () => resolve(undefined)));
   const answer = await Promise.race([readline.question(query), closed]);
   if (answer === undefined) {
-    throw new Error(
-      `Standard input closed before answering "${query.trim()}"; run interactively or pass --empty`,
-    );
+    throw new Error(`Standard input closed before answering "${query.trim()}"; run interactively or pass --empty`);
   }
   return answer;
 }
@@ -158,27 +133,16 @@ async function runGit(args: string[]): Promise<string> {
 }
 
 async function validateStatus(args: string[]): Promise<void> {
-  const sinceArgument = args.find((argument) =>
-    argument.startsWith("--since="),
-  );
+  const sinceArgument = args.find((argument) => argument.startsWith("--since="));
   const since = sinceArgument?.slice("--since=".length) ?? "origin/main";
   const changedFiles = (
-    await runGit([
-      "diff",
-      "--name-only",
-      "--diff-filter=AMRT",
-      `${since}...HEAD`,
-      "--",
-      changesetDirectory,
-    ])
+    await runGit(["diff", "--name-only", "--diff-filter=AMRT", `${since}...HEAD`, "--", changesetDirectory])
   )
     .split("\n")
     .filter(Boolean);
   const paths = changedFiles.filter(
     (path) =>
-      path.startsWith(`${changesetDirectory}/`) &&
-      path.endsWith(".md") &&
-      path !== `${changesetDirectory}/README.md`,
+      path.startsWith(`${changesetDirectory}/`) && path.endsWith(".md") && path !== `${changesetDirectory}/README.md`,
   );
   if (paths.length === 0) {
     throw new Error(`No release or empty Changeset found since ${since}`);
@@ -207,12 +171,7 @@ function renderRelease(version: string, changesets: Changeset[]): string {
   const body = sections.flatMap(([bump, heading]) => {
     const entries = changesets.filter((changeset) => changeset.bump === bump);
     if (entries.length === 0) return [];
-    return [
-      `### ${heading}`,
-      "",
-      ...entries.map((entry) => `- ${entry.summary.replace(/\s+/g, " ")}`),
-      "",
-    ];
+    return [`### ${heading}`, "", ...entries.map((entry) => `- ${entry.summary.replace(/\s+/g, " ")}`), ""];
   });
   const date = new Date().toISOString().slice(0, 10);
   return [`## ${version} - ${date}`, "", ...body].join("\n").trimEnd();
@@ -270,9 +229,7 @@ async function main(): Promise<void> {
   if (command === "add") return await addChangeset(args);
   if (command === "status") return await validateStatus(args);
   if (command === "version") return await versionRelease();
-  throw new Error(
-    "Usage: changeset.ts add [--empty] | status [--since=REF] | version",
-  );
+  throw new Error("Usage: changeset.ts add [--empty] | status [--since=REF] | version");
 }
 
 if (import.meta.main) await main();

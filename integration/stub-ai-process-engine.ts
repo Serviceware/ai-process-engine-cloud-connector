@@ -3,10 +3,7 @@ import type { IncomingMessage, Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import type {
-  CloudConnectorHttpRequest,
-  CloudConnectorResponseFrame,
-} from "../runtime/generated/models.ts";
+import type { CloudConnectorHttpRequest, CloudConnectorResponseFrame } from "../runtime/generated/models.ts";
 import { serve } from "../runtime/http-server.ts";
 import { createLogger } from "../runtime/logger.ts";
 import { waitFor } from "./wait.ts";
@@ -32,12 +29,7 @@ export class StubConnection {
   private readonly socket: WebSocket;
   private readonly transport: Duplex;
 
-  constructor(
-    socket: WebSocket,
-    transport: Duplex,
-    purpose: string,
-    authorization: string | null,
-  ) {
+  constructor(socket: WebSocket, transport: Duplex, purpose: string, authorization: string | null) {
     this.socket = socket;
     this.transport = transport;
     this.purpose = purpose;
@@ -69,10 +61,7 @@ export class StubConnection {
     )) as CloudConnectorResponseFrame;
   }
 
-  waitForFrame(
-    predicate: (frame: ReceivedFrame) => boolean,
-    description: string,
-  ): Promise<ReceivedFrame> {
+  waitForFrame(predicate: (frame: ReceivedFrame) => boolean, description: string): Promise<ReceivedFrame> {
     return waitFor(() => this.frames.find(predicate), description);
   }
 
@@ -104,9 +93,7 @@ export class StubAiProcessEngine {
     this.options = options;
   }
 
-  static async start(
-    options: StubAiProcessEngineOptions,
-  ): Promise<StubAiProcessEngine> {
+  static async start(options: StubAiProcessEngineOptions): Promise<StubAiProcessEngine> {
     const engine = new StubAiProcessEngine(options);
     engine.server = await serve((request) => engine.handle(request), {
       hostname: "127.0.0.1",
@@ -114,9 +101,7 @@ export class StubAiProcessEngine {
       signal: engine.abortController.signal,
       logger: createLogger("error"),
     });
-    engine.server.on("upgrade", (request, socket, head) =>
-      engine.upgrade(request, socket, head),
-    );
+    engine.server.on("upgrade", (request, socket, head) => engine.upgrade(request, socket, head));
     return engine;
   }
 
@@ -129,10 +114,7 @@ export class StubAiProcessEngine {
   }
 
   connection(index: number): Promise<StubConnection> {
-    return waitFor(
-      () => this.connections[index],
-      `Cloud Connector WebSocket connection #${index + 1}`,
-    );
+    return waitFor(() => this.connections[index], `Cloud Connector WebSocket connection #${index + 1}`);
   }
 
   async close(): Promise<void> {
@@ -151,10 +133,7 @@ export class StubAiProcessEngine {
       return Response.json({ auth: { issuer: this.issuer } });
     }
 
-    if (
-      request.method === "POST" &&
-      url.pathname === "/auth/realms/stub/protocol/openid-connect/token"
-    ) {
+    if (request.method === "POST" && url.pathname === "/auth/realms/stub/protocol/openid-connect/token") {
       const form = new URLSearchParams(await request.text());
       const tokenRequest: TokenRequest = {
         grantType: form.get("grant_type"),
@@ -181,24 +160,16 @@ export class StubAiProcessEngine {
     return new Response("Not found", { status: 404 });
   }
 
-  private upgrade(
-    request: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-  ): void {
+  private upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const url = new URL(request.url ?? "/", this.url);
-    const connect = url.pathname.match(
-      /^\/configuration-store\/api\/v1\/connector\/([^/]+)\/connect$/,
-    );
+    const connect = url.pathname.match(/^\/configuration-store\/api\/v1\/connector\/([^/]+)\/connect$/);
     const authorization = request.headers.authorization ?? null;
     if (!connect) {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       return;
     }
     if (!this.acceptConnections) {
-      socket.end(
-        "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n",
-      );
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
       return;
     }
     if (authorization !== `Bearer ${this.issuedTokens.at(-1)}`) {
@@ -206,14 +177,7 @@ export class StubAiProcessEngine {
       return;
     }
     this.webSockets.handleUpgrade(request, socket, head, (webSocket) => {
-      this.connections.push(
-        new StubConnection(
-          webSocket,
-          socket,
-          decodeURIComponent(connect[1]),
-          authorization,
-        ),
-      );
+      this.connections.push(new StubConnection(webSocket, socket, decodeURIComponent(connect[1]), authorization));
     });
   }
 }

@@ -1,10 +1,5 @@
 import { once } from "node:events";
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { RuntimeLogger } from "./logger.ts";
 
@@ -21,10 +16,7 @@ export type ServeOptions = {
 const forbiddenMethods = new Set(["CONNECT", "TRACE"]);
 
 /** Aborting `signal` closes the server and its open connections. */
-export async function serve(
-  handler: FetchHandler,
-  options: ServeOptions,
-): Promise<Server> {
+export async function serve(handler: FetchHandler, options: ServeOptions): Promise<Server> {
   const server = createServer((incoming, outgoing) => {
     if (forbiddenMethods.has(incoming.method ?? "")) {
       outgoing.writeHead(405).end();
@@ -35,10 +27,7 @@ export async function serve(
       return;
     }
     respond(handler, incoming, outgoing).catch((error) => {
-      options.logger.error(
-        `HTTP request ${incoming.method} ${incoming.url} failed`,
-        error,
-      );
+      options.logger.error(`HTTP request ${incoming.method} ${incoming.url} failed`, error);
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();
     });
@@ -48,9 +37,7 @@ export async function serve(
   });
   server.listen(options.port, options.hostname);
   await once(server, "listening");
-  server.on("error", (error) =>
-    options.logger.error("HTTP server error", error),
-  );
+  server.on("error", (error) => options.logger.error("HTTP server error", error));
 
   const close = () => {
     server.close();
@@ -61,11 +48,7 @@ export async function serve(
   return server;
 }
 
-async function respond(
-  handler: FetchHandler,
-  incoming: IncomingMessage,
-  outgoing: ServerResponse,
-): Promise<void> {
+async function respond(handler: FetchHandler, incoming: IncomingMessage, outgoing: ServerResponse): Promise<void> {
   const response = await handler(toRequest(incoming));
   const headers: Record<string, string | string[]> = {};
   response.headers.forEach((value, name) => {

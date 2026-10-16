@@ -23,9 +23,7 @@ export type FrameSender = (frame: WritableFrame) => void | Promise<void>;
  * Forwards the HTTP request carried by one inbound cloud frame.
  */
 export interface ProtocolExecutor {
-  execute(
-    frame: CloudConnectorRequestFrame,
-  ): Promise<CloudConnectorHttpResponse>;
+  execute(frame: CloudConnectorRequestFrame): Promise<CloudConnectorHttpResponse>;
 }
 
 /**
@@ -43,9 +41,7 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
     this.current = next;
   }
 
-  execute(
-    frame: CloudConnectorRequestFrame,
-  ): Promise<CloudConnectorHttpResponse> {
+  execute(frame: CloudConnectorRequestFrame): Promise<CloudConnectorHttpResponse> {
     const snapshot = this.current;
     return snapshot.execute(frame);
   }
@@ -74,10 +70,7 @@ export class ConnectorRuntime {
     this.maximumConcurrentRequests = options.maximumConcurrentRequests ?? 100;
   }
 
-  async handleFrame(
-    frame: CloudConnectorMessageFrame,
-    send: FrameSender,
-  ): Promise<void> {
+  async handleFrame(frame: CloudConnectorMessageFrame, send: FrameSender): Promise<void> {
     if (isHeartbeatFrame(frame)) {
       this.logger.info("Received heartbeat frame; sending heartbeat response");
       await send(createHeartbeatFrame());
@@ -85,9 +78,7 @@ export class ConnectorRuntime {
     }
 
     if (!isRequestFrame(frame)) {
-      this.logger.warn(
-        `Ignoring unsupported inbound frame type: ${frame.type}`,
-      );
+      this.logger.warn(`Ignoring unsupported inbound frame type: ${frame.type}`);
       return;
     }
 
@@ -113,22 +104,15 @@ export class ConnectorRuntime {
           send(
             createErrorFrame(frame.requestId, {
               code: "CONNECTOR_DRAINING",
-              message:
-                "Cloud Connector is draining before reconnect or shutdown",
+              message: "Cloud Connector is draining before reconnect or shutdown",
             }),
           ),
         ).catch((error) => {
-          this.logger.error(
-            `Failed to reject draining request ${frame.requestId}`,
-            error,
-          );
+          this.logger.error(`Failed to reject draining request ${frame.requestId}`, error);
         });
         return;
       }
-      if (
-        isRequestFrame(frame) &&
-        inFlight.size >= this.maximumConcurrentRequests
-      ) {
+      if (isRequestFrame(frame) && inFlight.size >= this.maximumConcurrentRequests) {
         void Promise.resolve(
           send(
             createErrorFrame(frame.requestId, {
@@ -137,22 +121,14 @@ export class ConnectorRuntime {
             }),
           ),
         ).catch((error) => {
-          this.logger.error(
-            `Failed to reject excess request ${frame.requestId}`,
-            error,
-          );
+          this.logger.error(`Failed to reject excess request ${frame.requestId}`, error);
         });
         return;
       }
 
       const task = this.handleFrame(frame, send).catch((error) => {
-        const requestId = isRequestFrame(frame)
-          ? ` for request ${frame.requestId}`
-          : "";
-        this.logger.error(
-          `Failed to process WebSocket message${requestId}`,
-          error,
-        );
+        const requestId = isRequestFrame(frame) ? ` for request ${frame.requestId}` : "";
+        this.logger.error(`Failed to process WebSocket message${requestId}`, error);
       });
       if (isRequestFrame(frame)) {
         inFlight.add(task);
@@ -187,18 +163,13 @@ export class ConnectorRuntime {
     };
   }
 
-  private async handleRequestFrame(
-    frame: CloudConnectorRequestFrame,
-    send: FrameSender,
-  ): Promise<void> {
+  private async handleRequestFrame(frame: CloudConnectorRequestFrame, send: FrameSender): Promise<void> {
     try {
       const response = await this.options.protocolExecutor.execute(frame);
       await send(createResponseFrame(frame.requestId, response));
     } catch (error) {
       const connectorError = toCloudConnectorError(error);
-      this.logger.warn(
-        `Forwarding request ${frame.requestId} failed: ${connectorError.code}`,
-      );
+      this.logger.warn(`Forwarding request ${frame.requestId} failed: ${connectorError.code}`);
       await send(createErrorFrame(frame.requestId, connectorError));
     }
   }

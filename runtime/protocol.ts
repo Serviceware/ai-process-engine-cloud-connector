@@ -7,69 +7,42 @@ import type {
 import { CLOUD_CONNECTOR_HTTP_METHOD_VALUES } from "./generated/models.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
-export type WritableFrame =
-  | CloudConnectorResponseFrame
-  | CloudConnectorHeartbeatFrame;
+export type WritableFrame = CloudConnectorResponseFrame | CloudConnectorHeartbeatFrame;
 
 export function parseMessageFrame(data: unknown): CloudConnectorMessageFrame {
   if (typeof data !== "string") {
-    throw new RuntimeError(
-      "INVALID_FRAME",
-      "WebSocket frames must be JSON strings",
-    );
+    throw new RuntimeError("INVALID_FRAME", "WebSocket frames must be JSON strings");
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(data);
   } catch (error) {
-    throw new RuntimeError(
-      "INVALID_FRAME",
-      "WebSocket frame is not valid JSON",
-      { cause: error },
-    );
+    throw new RuntimeError("INVALID_FRAME", "WebSocket frame is not valid JSON", { cause: error });
   }
 
   if (!isRecord(parsed) || typeof parsed.type !== "string") {
-    throw new RuntimeError(
-      "INVALID_FRAME",
-      "WebSocket frame must contain a string type",
-    );
+    throw new RuntimeError("INVALID_FRAME", "WebSocket frame must contain a string type");
   }
 
-  if (
-    parsed.type !== "request" &&
-    parsed.type !== "response" &&
-    parsed.type !== "heartbeat"
-  ) {
-    throw new RuntimeError(
-      "UNSUPPORTED_FRAME",
-      `Unsupported frame type: ${parsed.type}`,
-    );
+  if (parsed.type !== "request" && parsed.type !== "response" && parsed.type !== "heartbeat") {
+    throw new RuntimeError("UNSUPPORTED_FRAME", `Unsupported frame type: ${parsed.type}`);
   }
 
   if (parsed.type === "request") validateRequestFrame(parsed);
   if (parsed.type === "response") validateResponseFrame(parsed);
-  if (
-    parsed.type === "heartbeat" &&
-    parsed.sentAt !== undefined &&
-    typeof parsed.sentAt !== "string"
-  ) {
+  if (parsed.type === "heartbeat" && parsed.sentAt !== undefined && typeof parsed.sentAt !== "string") {
     invalidFrame("Heartbeat frame sentAt must be a string when present");
   }
 
   return parsed as CloudConnectorMessageFrame;
 }
 
-export function isRequestFrame(
-  frame: CloudConnectorMessageFrame,
-): frame is CloudConnectorRequestFrame {
+export function isRequestFrame(frame: CloudConnectorMessageFrame): frame is CloudConnectorRequestFrame {
   return frame.type === "request";
 }
 
-export function isHeartbeatFrame(
-  frame: CloudConnectorMessageFrame,
-): frame is CloudConnectorHeartbeatFrame {
+export function isHeartbeatFrame(frame: CloudConnectorMessageFrame): frame is CloudConnectorHeartbeatFrame {
   return frame.type === "heartbeat";
 }
 
@@ -118,9 +91,7 @@ function validateRequestFrame(frame: Record<string, unknown>): void {
   const request = frame.request as Record<string, unknown>;
   if (
     typeof request.method !== "string" ||
-    !CLOUD_CONNECTOR_HTTP_METHOD_VALUES.includes(
-      request.method as (typeof CLOUD_CONNECTOR_HTTP_METHOD_VALUES)[number],
-    )
+    !CLOUD_CONNECTOR_HTTP_METHOD_VALUES.includes(request.method as (typeof CLOUD_CONNECTOR_HTTP_METHOD_VALUES)[number])
   ) {
     invalidFrame("Request frame must contain a supported request.method");
   }
@@ -132,19 +103,12 @@ function validateRequestFrame(frame: Record<string, unknown>): void {
       invalidFrame("Request frame request.headers must be an object");
     }
     for (const value of Object.values(request.headers)) {
-      if (
-        !Array.isArray(value) ||
-        value.some((entry) => typeof entry !== "string")
-      ) {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
         invalidFrame("Request frame header values must be arrays of strings");
       }
     }
   }
-  if (
-    request.body !== undefined &&
-    request.body !== null &&
-    typeof request.body !== "string"
-  ) {
+  if (request.body !== undefined && request.body !== null && typeof request.body !== "string") {
     invalidFrame("Request frame request.body must be a string or null");
   }
   if (
@@ -154,9 +118,7 @@ function validateRequestFrame(frame: Record<string, unknown>): void {
       request.timeoutSeconds < 1 ||
       request.timeoutSeconds > 90)
   ) {
-    invalidFrame(
-      "Request frame request.timeoutSeconds must be an integer from 1 to 90",
-    );
+    invalidFrame("Request frame request.timeoutSeconds must be an integer from 1 to 90");
   }
 }
 
@@ -167,15 +129,8 @@ function validateResponseFrame(frame: Record<string, unknown>): void {
       invalidFrame("Response frame response must be an object");
     }
     const statusCode = (frame.response as Record<string, unknown>).statusCode;
-    if (
-      typeof statusCode !== "number" ||
-      !Number.isInteger(statusCode) ||
-      statusCode < 100 ||
-      statusCode > 599
-    ) {
-      invalidFrame(
-        "Response frame response.statusCode must be an HTTP status code",
-      );
+    if (typeof statusCode !== "number" || !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+      invalidFrame("Response frame response.statusCode must be an HTTP status code");
     }
   }
   if (frame.error !== undefined) {
@@ -184,9 +139,7 @@ function validateResponseFrame(frame: Record<string, unknown>): void {
     }
     const error = frame.error as Record<string, unknown>;
     if (typeof error.code !== "string" || typeof error.message !== "string") {
-      invalidFrame(
-        "Response frame error must contain string code and message fields",
-      );
+      invalidFrame("Response frame error must contain string code and message fields");
     }
   }
 }

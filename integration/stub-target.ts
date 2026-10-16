@@ -10,28 +10,20 @@ export type TargetRequest = {
   body: string;
 };
 
-export type TargetHandler = (
-  request: TargetRequest,
-) => Response | Promise<Response>;
+export type TargetHandler = (request: TargetRequest) => Response | Promise<Response>;
 
 export class StubTarget {
   readonly requests: TargetRequest[];
   private readonly server: Server;
   private readonly abortController: AbortController;
 
-  private constructor(
-    requests: TargetRequest[],
-    server: Server,
-    abortController: AbortController,
-  ) {
+  private constructor(requests: TargetRequest[], server: Server, abortController: AbortController) {
     this.requests = requests;
     this.server = server;
     this.abortController = abortController;
   }
 
-  static async start(
-    handler: TargetHandler = () => Response.json({ ok: true }),
-  ): Promise<StubTarget> {
+  static async start(handler: TargetHandler = () => Response.json({ ok: true })): Promise<StubTarget> {
     const abortController = new AbortController();
     const requests: TargetRequest[] = [];
     const server = await serve(

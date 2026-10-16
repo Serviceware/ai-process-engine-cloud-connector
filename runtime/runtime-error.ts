@@ -19,9 +19,7 @@ const urlPattern = /[a-z][a-z\d+.-]*:\/\/\S+/gi;
  * URLs in the message are redacted because they can carry credentials.
  */
 export function describeError(error: unknown): string {
-  const message = (
-    error instanceof Error ? error.message : String(error)
-  ).replace(urlPattern, "<url>");
+  const message = (error instanceof Error ? error.message : String(error)).replace(urlPattern, "<url>");
   const codes = [...new Set(errorCodes(error, maxCauseDepth))];
   return codes.length === 0 ? message : `${message} (${codes.join(", ")})`;
 }
@@ -29,15 +27,8 @@ export function describeError(error: unknown): string {
 function errorCodes(error: unknown, depth: number): string[] {
   if (depth === 0 || !(error instanceof Error)) return [];
   const code = (error as { code?: unknown }).code;
-  const nested =
-    error instanceof AggregateError
-      ? error.errors.flatMap((inner) => errorCodes(inner, depth - 1))
-      : [];
-  return [
-    ...(typeof code === "string" ? [code] : []),
-    ...nested,
-    ...errorCodes(error.cause, depth - 1),
-  ];
+  const nested = error instanceof AggregateError ? error.errors.flatMap((inner) => errorCodes(inner, depth - 1)) : [];
+  return [...(typeof code === "string" ? [code] : []), ...nested, ...errorCodes(error.cause, depth - 1)];
 }
 
 export function toCloudConnectorError(error: unknown): CloudConnectorError {

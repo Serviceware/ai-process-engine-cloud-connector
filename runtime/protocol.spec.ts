@@ -46,9 +46,7 @@ test("parseMessageFrame rejects malformed frames", () => {
   expect(() => parseMessageFrame("{}")).toThrow(
     expect.objectContaining({
       name: "RuntimeError",
-      message: expect.stringContaining(
-        "WebSocket frame must contain a string type",
-      ),
+      message: expect.stringContaining("WebSocket frame must contain a string type"),
     }),
   );
   expect(() => parseMessageFrame('{"type":"unknown"}')).toThrow(
@@ -63,11 +61,7 @@ test("parseMessageFrame rejects malformed frames", () => {
       message: expect.stringContaining("requestId"),
     }),
   );
-  expect(() =>
-    parseMessageFrame(
-      '{"type":"request","requestId":"request-1","request":{}}',
-    ),
-  ).toThrow(
+  expect(() => parseMessageFrame('{"type":"request","requestId":"request-1","request":{}}')).toThrow(
     expect.objectContaining({
       name: "RuntimeError",
       message: expect.stringContaining("request.method"),

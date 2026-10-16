@@ -113,9 +113,7 @@ test("serve answers request lines the Fetch API cannot represent", async () => {
   const abortController = new AbortController();
   const server = await serve(
     (request) =>
-      new URL(request.url).pathname === "/health"
-        ? new Response("ok")
-        : new Response("Not found", { status: 404 }),
+      new URL(request.url).pathname === "/health" ? new Response("ok") : new Response("Not found", { status: 404 }),
     {
       hostname: "127.0.0.1",
       port: 0,
@@ -136,21 +134,11 @@ test("serve answers request lines the Fetch API cannot represent", async () => {
       return response.split("\r\n")[0];
     };
 
-    expect(await statusLine("GET // HTTP/1.1")).toStrictEqual(
-      "HTTP/1.1 404 Not Found",
-    );
-    expect(await statusLine("GET * HTTP/1.1")).toStrictEqual(
-      "HTTP/1.1 400 Bad Request",
-    );
-    expect(await statusLine("TRACE /health HTTP/1.1")).toStrictEqual(
-      "HTTP/1.1 405 Method Not Allowed",
-    );
-    expect(await statusLine("TRACK /health HTTP/1.1")).toStrictEqual(
-      "HTTP/1.1 400 Bad Request",
-    );
-    expect(await statusLine("CONNECT localhost:1 HTTP/1.1")).toStrictEqual(
-      "HTTP/1.1 405 Method Not Allowed",
-    );
+    expect(await statusLine("GET // HTTP/1.1")).toStrictEqual("HTTP/1.1 404 Not Found");
+    expect(await statusLine("GET * HTTP/1.1")).toStrictEqual("HTTP/1.1 400 Bad Request");
+    expect(await statusLine("TRACE /health HTTP/1.1")).toStrictEqual("HTTP/1.1 405 Method Not Allowed");
+    expect(await statusLine("TRACK /health HTTP/1.1")).toStrictEqual("HTTP/1.1 400 Bad Request");
+    expect(await statusLine("CONNECT localhost:1 HTTP/1.1")).toStrictEqual("HTTP/1.1 405 Method Not Allowed");
     expect(errors.length).toStrictEqual(errorsBefore);
   } finally {
     abortController.abort();

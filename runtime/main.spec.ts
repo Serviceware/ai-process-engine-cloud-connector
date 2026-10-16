@@ -1,17 +1,9 @@
 import type { Server } from "node:http";
 import { expect, test, vi } from "vitest";
-import {
-  combineConfig,
-  loadEnvironmentConfig,
-  parseVolumeConfig,
-} from "./config.ts";
+import { combineConfig, loadEnvironmentConfig, parseVolumeConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
 import { serve } from "./http-server.ts";
-import {
-  createHandler,
-  createProtocolExecutor,
-  superviseHttpServer,
-} from "./main.ts";
+import { createHandler, createProtocolExecutor, superviseHttpServer } from "./main.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
 
 const silentLogger = createLogger("error", {
@@ -85,9 +77,7 @@ test("health fails only when the supervision loop is stale", async () => {
   const handler = createHandler(staticConfig, status, () => clock);
 
   status.connectionState = "disconnected";
-  expect(handler(new Request("http://localhost/health")).status).toStrictEqual(
-    200,
-  );
+  expect(handler(new Request("http://localhost/health")).status).toStrictEqual(200);
 
   clock += 1;
   const stale = handler(new Request("http://localhost/health"));
@@ -96,11 +86,7 @@ test("health fails only when the supervision loop is stale", async () => {
 });
 
 test("createProtocolExecutor uses only the validated YAML forwarding snapshot", async () => {
-  const executor = await createProtocolExecutor(
-    config(),
-    "/config/cloud-connector.yml",
-    silentLogger,
-  );
+  const executor = await createProtocolExecutor(config(), "/config/cloud-connector.yml", silentLogger);
 
   await expect(
     executor.execute({

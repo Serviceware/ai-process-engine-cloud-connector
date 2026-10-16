@@ -1,12 +1,7 @@
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import {
-  combineConfig,
-  type ConnectorConfig,
-  type EnvironmentConfig,
-  loadVolumeConfig,
-} from "./config.ts";
+import { combineConfig, type ConnectorConfig, type EnvironmentConfig, loadVolumeConfig } from "./config.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import type { RuntimeStatus } from "./runtime-status.ts";
 
@@ -125,11 +120,7 @@ export async function watchConfigFile(
 
 type Wake = { notify?: () => void };
 
-function abortableDelay(
-  ms: number,
-  signal: AbortSignal,
-  wake?: Wake,
-): Promise<void> {
+function abortableDelay(ms: number, signal: AbortSignal, wake?: Wake): Promise<void> {
   return new Promise((resolveDelay) => {
     if (signal.aborted) {
       resolveDelay();

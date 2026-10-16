@@ -1,9 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  ConnectorRuntime,
-  type ProtocolExecutor,
-  ReloadableProtocolExecutor,
-} from "./connector.ts";
+import { ConnectorRuntime, type ProtocolExecutor, ReloadableProtocolExecutor } from "./connector.ts";
 import type { CloudConnectorMessageFrame } from "./generated/models.ts";
 import { createLogger } from "./logger.ts";
 import type { WritableFrame } from "./protocol.ts";
@@ -24,17 +20,12 @@ test("ConnectorRuntime ignores unsupported inbound response frames", async () =>
   });
   const sentFrames: WritableFrame[] = [];
 
-  await runtime.handleFrame(
-    { type: "response", requestId: "request-1" } as CloudConnectorMessageFrame,
-    (frame) => {
-      sentFrames.push(frame);
-    },
-  );
+  await runtime.handleFrame({ type: "response", requestId: "request-1" } as CloudConnectorMessageFrame, (frame) => {
+    sentFrames.push(frame);
+  });
 
   expect(sentFrames).toStrictEqual([]);
-  expect(warnings).toStrictEqual([
-    "Ignoring unsupported inbound frame type: response",
-  ]);
+  expect(warnings).toStrictEqual(["Ignoring unsupported inbound frame type: response"]);
 });
 
 test("ConnectorRuntime executes protocol executor for request frames", async () => {
@@ -135,13 +126,8 @@ test("ConnectorRuntime bounds concurrency and drains accepted requests", async (
   socket.dispatchEvent(request("draining"));
   await nextTick();
 
-  const errors = socket.sent
-    .map((frame) => JSON.parse(frame))
-    .filter((frame) => frame.error);
-  expect(errors.map((frame) => frame.error.code)).toStrictEqual([
-    "TOO_MANY_REQUESTS",
-    "CONNECTOR_DRAINING",
-  ]);
+  const errors = socket.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.error);
+  expect(errors.map((frame) => frame.error.code)).toStrictEqual(["TOO_MANY_REQUESTS", "CONNECTOR_DRAINING"]);
   release();
   expect(await draining).toStrictEqual(true);
 });
@@ -163,9 +149,7 @@ test("ReloadableProtocolExecutor switches subsequent requests atomically", async
   expect((await executor.execute(frame)).body).toStrictEqual("second");
 });
 
-function createRuntime(
-  logger?: Partial<typeof silentLogger>,
-): ConnectorRuntime {
+function createRuntime(logger?: Partial<typeof silentLogger>): ConnectorRuntime {
   return new ConnectorRuntime({
     protocolExecutor: {
       execute: () => Promise.resolve({ statusCode: 204 }),

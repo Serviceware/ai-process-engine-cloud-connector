@@ -11,12 +11,6 @@ test("checkHealth returns success for healthy responses", async () => {
 });
 
 test("checkHealth returns failure for unhealthy responses and fetch errors", async () => {
-  expect(
-    await checkHealth(9090, () =>
-      Promise.resolve(new Response("down", { status: 503 })),
-    ),
-  ).toStrictEqual(1);
-  expect(
-    await checkHealth(9090, () => Promise.reject(new Error("offline"))),
-  ).toStrictEqual(1);
+  expect(await checkHealth(9090, () => Promise.resolve(new Response("down", { status: 503 })))).toStrictEqual(1);
+  expect(await checkHealth(9090, () => Promise.reject(new Error("offline")))).toStrictEqual(1);
 });

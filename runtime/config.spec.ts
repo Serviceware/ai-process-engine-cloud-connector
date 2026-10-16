@@ -1,10 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  combineConfig,
-  deriveWebSocketUrl,
-  loadEnvironmentConfig,
-  parseVolumeConfig,
-} from "./config.ts";
+import { combineConfig, deriveWebSocketUrl, loadEnvironmentConfig, parseVolumeConfig } from "./config.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
 const requiredEnvironment = {
@@ -42,10 +37,7 @@ test("loadEnvironmentConfig keeps only credentials and resilience tuning", () =>
 
 test("loadEnvironmentConfig requires Cloud host and credentials", () => {
   for (const missing of Object.keys(requiredEnvironment)) {
-    const env = { ...requiredEnvironment } as Record<
-      string,
-      string | undefined
-    >;
+    const env = { ...requiredEnvironment } as Record<string, string | undefined>;
     delete env[missing];
     expect(() => loadEnvironmentConfig(env)).toThrow(missing);
   }
@@ -57,9 +49,7 @@ test("loadEnvironmentConfig validates Cloud host and resilience values", () => {
       ...requiredEnvironment,
       CLOUD_CONNECTOR_HOST: "wss://cloud.example",
     }),
-  ).toThrow(
-    "CLOUD_CONNECTOR_HOST must use one of these protocols: http:, https:",
-  );
+  ).toThrow("CLOUD_CONNECTOR_HOST must use one of these protocols: http:, https:");
 
   for (const value of ["0", "-1", "1.5", "abc"]) {
     expect(() =>
@@ -157,16 +147,9 @@ test("parseVolumeConfig applies hot-reloadable defaults", () => {
 });
 
 test("combineConfig derives the WebSocket endpoint from host and purpose", () => {
-  const config = combineConfig(
-    loadEnvironmentConfig(requiredEnvironment),
-    parseVolumeConfig(minimalYaml),
-  );
-  expect(config.websocketUrl).toStrictEqual(
-    "wss://cloud.example/configuration-store/api/v1/connector/main/connect",
-  );
-  expect(
-    deriveWebSocketUrl("http://localhost:8000/base/?old=true", "inventory v2"),
-  ).toStrictEqual(
+  const config = combineConfig(loadEnvironmentConfig(requiredEnvironment), parseVolumeConfig(minimalYaml));
+  expect(config.websocketUrl).toStrictEqual("wss://cloud.example/configuration-store/api/v1/connector/main/connect");
+  expect(deriveWebSocketUrl("http://localhost:8000/base/?old=true", "inventory v2")).toStrictEqual(
     "ws://localhost:8000/configuration-store/api/v1/connector/inventory%20v2/connect",
   );
 });
@@ -266,9 +249,7 @@ forwarding:
   - target: ^https://internal[.]example(?:/.*)?$
 `);
 
-  expect(() => combineConfig(shortLiveness, longHeartbeat)).toThrow(
-    "must be greater than both",
-  );
+  expect(() => combineConfig(shortLiveness, longHeartbeat)).toThrow("must be greater than both");
 });
 
 test("combineConfig rejects a peer-silence window shorter than the cloud heartbeat", () => {
@@ -278,16 +259,14 @@ connection:
 forwarding:
   - target: ^https://internal[.]example(?:/.*)?$
 `);
-  expect(() =>
-    combineConfig(loadEnvironmentConfig(requiredEnvironment), fastHeartbeat),
-  ).toThrow("30-second Serviceware Cloud heartbeat interval");
+  expect(() => combineConfig(loadEnvironmentConfig(requiredEnvironment), fastHeartbeat)).toThrow(
+    "30-second Serviceware Cloud heartbeat interval",
+  );
   const watchdogDisabled = loadEnvironmentConfig({
     ...requiredEnvironment,
     CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR: "0",
   });
-  expect(
-    combineConfig(watchdogDisabled, fastHeartbeat).heartbeatIntervalMs,
-  ).toStrictEqual(5_000);
+  expect(combineConfig(watchdogDisabled, fastHeartbeat).heartbeatIntervalMs).toStrictEqual(5_000);
 });
 
 test("parseVolumeConfig keeps YAML 1.1 integer forms", () => {
@@ -305,12 +284,10 @@ connection:
 forwarding:
   - target: ^https://internal[.]example(?:/.*)?$
 `);
-    expect({ source, ms: config.connection.heartbeatIntervalMs }).toStrictEqual(
-      {
-        source,
-        ms: seconds * 1000,
-      },
-    );
+    expect({ source, ms: config.connection.heartbeatIntervalMs }).toStrictEqual({
+      source,
+      ms: seconds * 1000,
+    });
   }
 });
 

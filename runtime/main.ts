@@ -11,11 +11,7 @@ import {
   loadEnvironmentConfig,
   loadVolumeConfig,
 } from "./config.ts";
-import {
-  ConnectorRuntime,
-  type ProtocolExecutor,
-  ReloadableProtocolExecutor,
-} from "./connector.ts";
+import { ConnectorRuntime, type ProtocolExecutor, ReloadableProtocolExecutor } from "./connector.ts";
 import { createHttpDispatcher } from "./http-dispatcher.ts";
 import { serve } from "./http-server.ts";
 import type { ReloadableRuntimeLogger, RuntimeLogger } from "./logger.ts";
@@ -23,11 +19,7 @@ import { createLogger, createReloadableLogger } from "./logger.ts";
 import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
 import { delay, ReloadableWebSocketClient } from "./websocket-client.ts";
-import {
-  createOAuthTokenCache,
-  createYamlForwardingExecutor,
-  type OAuthTokenCache,
-} from "./yaml-forwarding.ts";
+import { createOAuthTokenCache, createYamlForwardingExecutor, type OAuthTokenCache } from "./yaml-forwarding.ts";
 
 /** Exit codes (sysexits.h) so a supervisor can distinguish failure modes. */
 const EX_SOFTWARE = 70;
@@ -62,12 +54,7 @@ export async function createRuntimeBundle(
 ): Promise<RuntimeBundle> {
   logger.info("Starting Cloud Connector forward proxy");
   const oauthTokenCache = createOAuthTokenCache();
-  const initialExecutor = await createProtocolExecutor(
-    config,
-    configPath,
-    logger,
-    oauthTokenCache,
-  );
+  const initialExecutor = await createProtocolExecutor(config, configPath, logger, oauthTokenCache);
   const protocolExecutor = new ReloadableProtocolExecutor(initialExecutor);
   const runtime = new ConnectorRuntime({
     protocolExecutor,
@@ -89,10 +76,7 @@ export function createHandler(
     if (url.pathname === "/health") {
       const stale = now() - status.lastTickAt > environment.livenessStaleMs;
       if (stale) {
-        return Response.json(
-          { status: "unhealthy", reason: "supervision loop stalled" },
-          { status: 503 },
-        );
+        return Response.json({ status: "unhealthy", reason: "supervision loop stalled" }, { status: 503 });
       }
       return Response.json({ status: "ok" });
     }
@@ -187,10 +171,7 @@ function closed(server: Server): Promise<void> {
   return new Promise((resolve) => server.once("close", () => resolve()));
 }
 
-function logOutboundPolicy(
-  config: ConnectorConfig,
-  logger: RuntimeLogger,
-): void {
+function logOutboundPolicy(config: ConnectorConfig, logger: RuntimeLogger): void {
   const patterns = config.forwarding.length;
   logger.info(`YAML forwarding policy active with ${patterns} target rule(s)`);
 }
@@ -210,10 +191,7 @@ if (import.meta.main) {
     logger = createReloadableLogger(config.logLevel);
     logOutboundPolicy(config, logger);
   } catch (error) {
-    console.error(
-      "[cloud-connector] FATAL: invalid configuration:",
-      error instanceof Error ? error.message : error,
-    );
+    console.error("[cloud-connector] FATAL: invalid configuration:", error instanceof Error ? error.message : error);
     process.exit(EX_CONFIG);
   }
 
@@ -221,10 +199,7 @@ if (import.meta.main) {
   try {
     runtimeBundle = await createRuntimeBundle(config, configPath, logger);
   } catch (error) {
-    console.error(
-      "[cloud-connector] FATAL: failed to initialize forward proxy:",
-      error,
-    );
+    console.error("[cloud-connector] FATAL: failed to initialize forward proxy:", error);
     process.exit(EX_SOFTWARE);
   }
 
@@ -244,12 +219,7 @@ if (import.meta.main) {
     environment,
     async (nextConfig) => {
       // Construct every fallible component before changing live state.
-      const nextExecutor = await createProtocolExecutor(
-        nextConfig,
-        configPath,
-        logger,
-        runtimeBundle.oauthTokenCache,
-      );
+      const nextExecutor = await createProtocolExecutor(nextConfig, configPath, logger, runtimeBundle.oauthTokenCache);
 
       runtimeBundle.protocolExecutor.replace(nextExecutor);
       logger.setLevel(nextConfig.logLevel);
@@ -281,10 +251,7 @@ if (import.meta.main) {
   // Before this point an unexpected fault terminates startup.
   process.on("unhandledRejection", (reason) => {
     try {
-      console.error(
-        "[cloud-connector] unhandled rejection (recovered):",
-        reason,
-      );
+      console.error("[cloud-connector] unhandled rejection (recovered):", reason);
     } catch {
       /* never let logging terminate the process */
     }

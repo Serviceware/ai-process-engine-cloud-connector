@@ -1,8 +1,5 @@
 import { once } from "node:events";
-import {
-  createServer as createHttpServer,
-  request as httpRequest,
-} from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
 import { expect, test } from "vitest";
@@ -36,11 +33,7 @@ type ConfigOptions = {
 
 function connectorConfig(
   target: StubTarget,
-  {
-    path = "api",
-    heartbeatIntervalSeconds = 1,
-    auth = true,
-  }: ConfigOptions = {},
+  { path = "api", heartbeatIntervalSeconds = 1, auth = true }: ConfigOptions = {},
 ): string {
   const authConfig = auth
     ? `
@@ -68,10 +61,7 @@ forwarding:
 `;
 }
 
-async function withConnector(
-  options: FixtureOptions,
-  run: (fixture: Fixture) => Promise<void>,
-): Promise<void> {
+async function withConnector(options: FixtureOptions, run: (fixture: Fixture) => Promise<void>): Promise<void> {
   const engine = await StubAiProcessEngine.start({ clientId, clientSecret });
   try {
     const target = await StubTarget.start(options.target);
@@ -123,9 +113,7 @@ test("connects with client credentials and reports readiness", async () => {
     ]);
     expect(connection.purpose).toStrictEqual("integration");
     expect(engine.issuedTokens.length).toStrictEqual(1);
-    expect(connection.authorization).toStrictEqual(
-      `Bearer ${engine.issuedTokens[0]}`,
-    );
+    expect(connection.authorization).toStrictEqual(`Bearer ${engine.issuedTokens[0]}`);
 
     const ready = await connector.ready();
     expect(ready.status).toStrictEqual(200);
@@ -166,9 +154,7 @@ test("forwards an allowed request and returns the target response", async () => 
       expect(frame.error).toStrictEqual(undefined);
       expect(frame.response?.statusCode).toStrictEqual(201);
       expect(frame.response?.body).toStrictEqual('{"tickets":[1,2]}');
-      expect(frame.response?.headers?.["content-type"]).toStrictEqual([
-        "application/json",
-      ]);
+      expect(frame.response?.headers?.["content-type"]).toStrictEqual(["application/json"]);
       expect(frame.response?.headers?.["x-internal"]).toStrictEqual(undefined);
 
       expect(target.requests.length).toStrictEqual(1);
@@ -177,12 +163,8 @@ test("forwards an allowed request and returns the target response", async () => 
       expect(forwarded.url.pathname).toStrictEqual("/api/tickets");
       expect(forwarded.url.search).toStrictEqual("?state=open");
       expect(forwarded.body).toStrictEqual('{"title":"Printer broken"}');
-      expect(forwarded.headers.get("content-type")).toStrictEqual(
-        "application/json",
-      );
-      expect(forwarded.headers.get("authorization")).toStrictEqual(
-        `Bearer ${targetToken}`,
-      );
+      expect(forwarded.headers.get("content-type")).toStrictEqual("application/json");
+      expect(forwarded.headers.get("authorization")).toStrictEqual(`Bearer ${targetToken}`);
       expect(forwarded.headers.get("cookie")).toStrictEqual(null);
       expect(forwarded.headers.get("x-request-id")).toStrictEqual("request-1");
     },
@@ -190,26 +172,23 @@ test("forwards an allowed request and returns the target response", async () => 
 });
 
 test("strips caller credentials when the rule configures no auth", async () => {
-  await withConnector(
-    { config: (target) => connectorConfig(target, { auth: false }) },
-    async ({ engine, target }) => {
-      const connection = await engine.connection(0);
+  await withConnector({ config: (target) => connectorConfig(target, { auth: false }) }, async ({ engine, target }) => {
+    const connection = await engine.connection(0);
 
-      const frame = await connection.request({
-        method: "GET",
-        url: `${target.url}/api/tickets`,
-        headers: {
-          authorization: ["Bearer caller-credential"],
-          cookie: ["session=caller"],
-        },
-      });
+    const frame = await connection.request({
+      method: "GET",
+      url: `${target.url}/api/tickets`,
+      headers: {
+        authorization: ["Bearer caller-credential"],
+        cookie: ["session=caller"],
+      },
+    });
 
-      expect(frame.response?.statusCode).toStrictEqual(200);
-      const [forwarded] = target.requests;
-      expect(forwarded.headers.get("authorization")).toStrictEqual(null);
-      expect(forwarded.headers.get("cookie")).toStrictEqual(null);
-    },
-  );
+    expect(frame.response?.statusCode).toStrictEqual(200);
+    const [forwarded] = target.requests;
+    expect(forwarded.headers.get("authorization")).toStrictEqual(null);
+    expect(forwarded.headers.get("cookie")).toStrictEqual(null);
+  });
 });
 
 test("serves concurrent requests over one connection", async () => {
@@ -240,13 +219,7 @@ test("serves concurrent requests over one connection", async () => {
         ),
       );
 
-      expect(frames.map((frame) => frame.response?.body)).toStrictEqual([
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-      ]);
+      expect(frames.map((frame) => frame.response?.body)).toStrictEqual(["1", "2", "3", "4", "5"]);
     },
   );
 });
@@ -298,9 +271,7 @@ test("denies redirects that leave the forwarding policy", async () => {
       });
 
       expect(frame.error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
-      expect(
-        target.requests.map((request) => request.url.pathname),
-      ).toStrictEqual(["/api/moved"]);
+      expect(target.requests.map((request) => request.url.pathname)).toStrictEqual(["/api/moved"]);
     },
   );
 });
@@ -320,13 +291,9 @@ test("reports unreachable targets as protocol errors", async () => {
 test("sends periodic heartbeats", async () => {
   await withConnector({}, async ({ engine }) => {
     const connection = await engine.connection(0);
-    const heartbeats = () =>
-      connection.frames.filter((frame) => frame.type === "heartbeat");
+    const heartbeats = () => connection.frames.filter((frame) => frame.type === "heartbeat");
 
-    await waitFor(
-      () => heartbeats().length >= 2 || undefined,
-      "two connector heartbeats",
-    );
+    await waitFor(() => heartbeats().length >= 2 || undefined, "two connector heartbeats");
     expect(typeof heartbeats()[0].sentAt).toStrictEqual("string");
   });
 });
@@ -334,8 +301,7 @@ test("sends periodic heartbeats", async () => {
 test("answers heartbeats from the engine", async () => {
   await withConnector(
     {
-      config: (target) =>
-        connectorConfig(target, { heartbeatIntervalSeconds: 60 }),
+      config: (target) => connectorConfig(target, { heartbeatIntervalSeconds: 60 }),
     },
     async ({ engine }) => {
       const connection = await engine.connection(0);
@@ -344,9 +310,7 @@ test("answers heartbeats from the engine", async () => {
       connection.send(JSON.stringify({ type: "heartbeat" }));
 
       const answer = await connection.waitForFrame(
-        (frame) =>
-          frame.type === "heartbeat" &&
-          connection.frames.indexOf(frame) >= before,
+        (frame) => frame.type === "heartbeat" && connection.frames.indexOf(frame) >= before,
         "heartbeat answer",
       );
       expect(typeof answer.sentAt).toStrictEqual("string");
@@ -386,10 +350,7 @@ test("ignores invalid frames and keeps serving", async () => {
     });
     expect(frame.response?.statusCode).toStrictEqual(200);
     expect(
-      connection.frames.filter(
-        (received) =>
-          received.requestId === "broken" || received.requestId === "x",
-      ),
+      connection.frames.filter((received) => received.requestId === "broken" || received.requestId === "x"),
     ).toStrictEqual([]);
     expect(target.requests.length).toStrictEqual(1);
     expect(connection.isOpen).toBeTruthy();
@@ -405,12 +366,8 @@ test("reconnects with a fresh token after the engine closes the connection", asy
 
     const second = await engine.connection(1);
     expect(engine.tokenRequests.length).toStrictEqual(2);
-    expect(first.authorization).toStrictEqual(
-      `Bearer ${engine.issuedTokens[0]}`,
-    );
-    expect(second.authorization).toStrictEqual(
-      `Bearer ${engine.issuedTokens[1]}`,
-    );
+    expect(first.authorization).toStrictEqual(`Bearer ${engine.issuedTokens[0]}`);
+    expect(second.authorization).toStrictEqual(`Bearer ${engine.issuedTokens[1]}`);
 
     const frame = await second.request({
       method: "GET",
@@ -424,27 +381,18 @@ test("reconnects with a fresh token after the engine closes the connection", asy
 test("hot-reloads forwarding rules and keeps the last valid configuration", async () => {
   await withConnector({}, async ({ engine, target, connector }) => {
     const connection = await engine.connection(0);
-    const request = (path: string) =>
-      connection.request({ method: "GET", url: `${target.url}/${path}` });
+    const request = (path: string) => connection.request({ method: "GET", url: `${target.url}/${path}` });
 
-    expect((await request("v2/tickets")).error?.code).toStrictEqual(
-      "OUTBOUND_URL_NOT_ALLOWED",
-    );
+    expect((await request("v2/tickets")).error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
 
     await connector.writeConfig(connectorConfig(target, { path: "v2" }));
     await waitForReload(connector, true);
-    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(
-      200,
-    );
-    expect((await request("api/tickets")).error?.code).toStrictEqual(
-      "OUTBOUND_URL_NOT_ALLOWED",
-    );
+    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(200);
+    expect((await request("api/tickets")).error?.code).toStrictEqual("OUTBOUND_URL_NOT_ALLOWED");
 
     await connector.writeConfig("forwarding: []\n");
     await waitForReload(connector, false);
-    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(
-      200,
-    );
+    expect((await request("v2/tickets")).response?.statusCode).toStrictEqual(200);
 
     expect(engine.connections.length).toStrictEqual(1);
     expect(connection.isOpen).toBeTruthy();
@@ -452,41 +400,35 @@ test("hot-reloads forwarding rules and keeps the last valid configuration", asyn
 });
 
 // Windows cannot deliver SIGTERM to a child process.
-test.skipIf(process.platform === "win32")(
-  "drains in-flight requests and exits cleanly on SIGTERM",
-  async () => {
-    let releaseTarget!: () => void;
-    const targetReleased = new Promise<void>((resolve) => {
-      releaseTarget = resolve;
-    });
-    await withConnector(
-      {
-        target: async () => {
-          await targetReleased;
-          return new Response("finished");
-        },
+test.skipIf(process.platform === "win32")("drains in-flight requests and exits cleanly on SIGTERM", async () => {
+  let releaseTarget!: () => void;
+  const targetReleased = new Promise<void>((resolve) => {
+    releaseTarget = resolve;
+  });
+  await withConnector(
+    {
+      target: async () => {
+        await targetReleased;
+        return new Response("finished");
       },
-      async ({ engine, target, connector }) => {
-        const connection = await engine.connection(0);
-        const response = connection.request({
-          method: "GET",
-          url: `${target.url}/api/slow`,
-        });
-        await waitFor(
-          () => target.requests.length > 0 || undefined,
-          "slow target request",
-        );
+    },
+    async ({ engine, target, connector }) => {
+      const connection = await engine.connection(0);
+      const response = connection.request({
+        method: "GET",
+        url: `${target.url}/api/slow`,
+      });
+      await waitFor(() => target.requests.length > 0 || undefined, "slow target request");
 
-        const exit = connector.stop("SIGTERM");
-        setTimeout(releaseTarget, 500);
+      const exit = connector.stop("SIGTERM");
+      setTimeout(releaseTarget, 500);
 
-        expect((await response).response?.body).toStrictEqual("finished");
-        await connection.closed;
-        expect((await exit).code).toStrictEqual(0);
-      },
-    );
-  },
-);
+      expect((await response).response?.body).toStrictEqual("finished");
+      await connection.closed;
+      expect((await exit).code).toStrictEqual(0);
+    },
+  );
+});
 
 test("exits with EX_CONFIG for an invalid configuration", async () => {
   await withConnector(
@@ -498,28 +440,23 @@ test("exits with EX_CONFIG for an invalid configuration", async () => {
       const { code, output } = await connector.waitForExit();
 
       expect(code).toStrictEqual(78);
-      expect(output).toMatch(
-        /FATAL: invalid configuration: .*forwarding must be a non-empty array of rules/,
-      );
+      expect(output).toMatch(/FATAL: invalid configuration: .*forwarding must be a non-empty array of rules/);
       expect(engine.tokenRequests.length).toStrictEqual(0);
     },
   );
 });
 
 // Windows cannot deliver SIGINT to a child process.
-test.skipIf(process.platform === "win32")(
-  "exits cleanly on SIGINT",
-  async () => {
-    await withConnector({}, async ({ engine, connector }) => {
-      const connection = await engine.connection(0);
+test.skipIf(process.platform === "win32")("exits cleanly on SIGINT", async () => {
+  await withConnector({}, async ({ engine, connector }) => {
+    const connection = await engine.connection(0);
 
-      const { code } = await connector.stop("SIGINT");
+    const { code } = await connector.stop("SIGINT");
 
-      expect(code).toStrictEqual(0);
-      await connection.closed;
-    });
-  },
-);
+    expect(code).toStrictEqual(0);
+    await connection.closed;
+  });
+});
 
 test("exits with EX_OSERR when the probe port is taken", async () => {
   const blocker = createServer();
@@ -538,10 +475,7 @@ test("exits with EX_OSERR when the probe port is taken", async () => {
   }
 });
 
-async function waitForReload(
-  connector: ConnectorProcess,
-  succeeded: boolean,
-): Promise<void> {
+async function waitForReload(connector: ConnectorProcess, succeeded: boolean): Promise<void> {
   await waitFor(async () => {
     const { body } = await connector.ready();
     const reload = body.configReload as { succeeded: boolean | null };
@@ -572,14 +506,10 @@ test("sends control-plane requests through HTTP_PROXY", async () => {
   const proxied: string[] = [];
   const proxy = createHttpServer((request, response) => {
     proxied.push(`${request.method} ${request.url}`);
-    const upstream = httpRequest(
-      request.url ?? "",
-      { method: request.method, headers: request.headers },
-      (reply) => {
-        response.writeHead(reply.statusCode ?? 502, reply.headers);
-        reply.pipe(response);
-      },
-    );
+    const upstream = httpRequest(request.url ?? "", { method: request.method, headers: request.headers }, (reply) => {
+      response.writeHead(reply.statusCode ?? 502, reply.headers);
+      reply.pipe(response);
+    });
     request.pipe(upstream);
   });
   proxy.listen(0, "127.0.0.1");
@@ -592,10 +522,7 @@ test("sends control-plane requests through HTTP_PROXY", async () => {
         waitUntilReady: false,
       },
       async ({ engine }) => {
-        await waitFor(
-          () => engine.tokenRequests.length > 0 || undefined,
-          "token request through the proxy",
-        );
+        await waitFor(() => engine.tokenRequests.length > 0 || undefined, "token request through the proxy");
 
         expect(proxied).toContain(`GET ${engine.url}/.well-known`);
       },

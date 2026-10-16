@@ -42,8 +42,5 @@ test("createLogger filters messages by level", () => {
   logger.info("hidden");
   logger.debug("hidden");
 
-  expect(entries).toStrictEqual([
-    "error:[cloud-connector] ERROR boom",
-    "warn:[cloud-connector] WARN careful",
-  ]);
+  expect(entries).toStrictEqual(["error:[cloud-connector] ERROR boom", "warn:[cloud-connector] WARN careful"]);
 });

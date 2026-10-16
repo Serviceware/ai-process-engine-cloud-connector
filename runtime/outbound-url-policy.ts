@@ -41,10 +41,7 @@ export class OutboundUrlAllowlist {
  * unless at least one configured regular expression matches the normalized,
  * absolute URL.
  */
-export function createAllowlistedFetch(
-  patterns: readonly string[],
-  nextFetch: Fetcher = unrestrictedFetch,
-): Fetcher {
+export function createAllowlistedFetch(patterns: readonly string[], nextFetch: Fetcher = unrestrictedFetch): Fetcher {
   const allowlist = new OutboundUrlAllowlist(patterns);
 
   return (async (input, init) => {
@@ -69,54 +66,32 @@ export function createAllowlistedFetch(
       await response.body?.cancel();
 
       if (redirectMode === "error") {
-        throw new TypeError(
-          "Redirect encountered while redirect mode is error",
-        );
+        throw new TypeError("Redirect encountered while redirect mode is error");
       }
       if (redirectsFollowed >= maximumRedirects) {
         throw new TypeError(`Too many redirects (maximum ${maximumRedirects})`);
       }
 
       const redirectUrl = new URL(location, request.url);
-      request = createRedirectRequest(
-        replayableRequest,
-        redirectUrl,
-        response.status,
-      );
+      request = createRedirectRequest(replayableRequest, redirectUrl, response.status);
       redirectsFollowed += 1;
     }
   }) as Fetcher;
 }
 
-function createRedirectRequest(
-  source: Request,
-  target: URL,
-  status: number,
-): Request {
+function createRedirectRequest(source: Request, target: URL, status: number): Request {
   const headers = new Headers(source.headers);
   const switchesToGet =
-    (status === 303 && source.method !== "HEAD") ||
-    ((status === 301 || status === 302) && source.method === "POST");
+    (status === 303 && source.method !== "HEAD") || ((status === 301 || status === 302) && source.method === "POST");
 
   if (switchesToGet) {
-    for (const name of [
-      "content-encoding",
-      "content-language",
-      "content-length",
-      "content-location",
-      "content-type",
-    ]) {
+    for (const name of ["content-encoding", "content-language", "content-length", "content-location", "content-type"]) {
       headers.delete(name);
     }
   }
 
   if (new URL(source.url).origin !== target.origin) {
-    for (const name of [
-      "authorization",
-      "cookie",
-      "cookie2",
-      "proxy-authorization",
-    ]) {
+    for (const name of ["authorization", "cookie", "cookie2", "proxy-authorization"]) {
       headers.delete(name);
     }
   }

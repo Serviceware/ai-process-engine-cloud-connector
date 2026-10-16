@@ -55,10 +55,7 @@ function configFor(forwardingYaml: string): ConnectorConfig {
     .split("\n")
     .map((line) => "  " + line)
     .join("\n");
-  return combineConfig(
-    environment,
-    parseVolumeConfig("connection: {}\nforwarding:\n" + indented + "\n"),
-  );
+  return combineConfig(environment, parseVolumeConfig("connection: {}\nforwarding:\n" + indented + "\n"));
 }
 
 test("YamlForwardingExecutor matches the complete URL and merges ordered rules", async () => {
@@ -117,9 +114,7 @@ test("YamlForwardingExecutor matches the complete URL and merges ordered rules",
   });
 
   expect(calls.length).toStrictEqual(1);
-  expect(calls[0].url).toStrictEqual(
-    "https://internal.example/api/orders?state=open",
-  );
+  expect(calls[0].url).toStrictEqual("https://internal.example/api/orders?state=open");
   expect(calls[0].headers.get("authorization")).toStrictEqual("Bearer secret");
   expect(calls[0].headers.get("x-policy")).toStrictEqual("general");
   expect(calls[0].headers.get("x-overridden")).toStrictEqual("second");
@@ -138,9 +133,7 @@ test("YamlForwardingExecutor matches the complete URL and merges ordered rules",
 
 test("YamlForwardingExecutor denies unmatched URLs and explicit empty methods", async () => {
   const executor = await createYamlForwardingExecutor({
-    config: configFor(
-      "- target: ^https://internal[.]example/.*$\n  methods: []",
-    ),
+    config: configFor("- target: ^https://internal[.]example/.*$\n  methods: []"),
     configPath: "/config/cloud-connector.yml",
     logger: silentLogger,
   });
@@ -207,10 +200,7 @@ test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials tokens
   expect(tokenBodies).toStrictEqual([
     "grant_type=client_credentials&client_id=connector&client_secret=secret&scope=inventory.read",
   ]);
-  expect(targetAuthorizations).toStrictEqual([
-    "Bearer oauth-token",
-    "Bearer oauth-token",
-  ]);
+  expect(targetAuthorizations).toStrictEqual(["Bearer oauth-token", "Bearer oauth-token"]);
 });
 
 test("YamlForwardingExecutor deduplicates OAuth2 fetches and shares the cache across reloads", async () => {
@@ -329,9 +319,7 @@ test("YamlForwardingExecutor supports Basic auth and reports OAuth2 failures", a
 test("YamlForwardingExecutor strips inbound credentials unless explicitly enabled", async () => {
   for (const forwardIncomingCredentials of [false, true]) {
     let request!: Request;
-    const option = forwardIncomingCredentials
-      ? "\n  request:\n    forwardIncomingCredentials: true"
-      : "";
+    const option = forwardIncomingCredentials ? "\n  request:\n    forwardIncomingCredentials: true" : "";
     const executor = await createYamlForwardingExecutor({
       config: configFor(`- target: ^https://internal[.]example/.*$${option}`),
       configPath: "test.yml",
@@ -354,12 +342,8 @@ test("YamlForwardingExecutor strips inbound credentials unless explicitly enable
         },
       },
     });
-    expect(request.headers.get("authorization")).toStrictEqual(
-      forwardIncomingCredentials ? "Bearer caller" : null,
-    );
-    expect(request.headers.get("cookie")).toStrictEqual(
-      forwardIncomingCredentials ? "session=secret" : null,
-    );
+    expect(request.headers.get("authorization")).toStrictEqual(forwardIncomingCredentials ? "Bearer caller" : null);
+    expect(request.headers.get("cookie")).toStrictEqual(forwardIncomingCredentials ? "session=secret" : null);
   }
 });
 
@@ -471,28 +455,14 @@ test("mergeForwardingConfigs applies later explicit values and header entries", 
 });
 
 test("maintained templates contain valid complete connector YAML", async () => {
-  const schemaPath = fileURLToPath(
-    new URL("../schemas/cloud-connector.schema.json", import.meta.url),
-  );
+  const schemaPath = fileURLToPath(new URL("../schemas/cloud-connector.schema.json", import.meta.url));
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   const Ajv2020 = Ajv2020Module.default;
   const addFormats = addFormatsModule.default;
-  const validateSchema = addFormats(new Ajv2020({ strict: false })).compile(
-    schema,
-  );
+  const validateSchema = addFormats(new Ajv2020({ strict: false })).compile(schema);
   for (const path of [
-    fileURLToPath(
-      new URL(
-        "../templates/starter/config/cloud-connector.yml",
-        import.meta.url,
-      ),
-    ),
-    fileURLToPath(
-      new URL(
-        "../templates/examples/ticketing-yaml/config/cloud-connector.yml",
-        import.meta.url,
-      ),
-    ),
+    fileURLToPath(new URL("../templates/starter/config/cloud-connector.yml", import.meta.url)),
+    fileURLToPath(new URL("../templates/examples/ticketing-yaml/config/cloud-connector.yml", import.meta.url)),
   ]) {
     const yaml = await readFile(path, "utf8");
     expect(
@@ -509,12 +479,9 @@ test("maintained templates contain valid complete connector YAML", async () => {
 });
 
 test("interpolate exposes only documented declarative values", () => {
-  expect(
-    interpolate(
-      "Bearer {{ env.API_TOKEN }} / {{ context.requestId }}",
-      baseContext,
-    ),
-  ).toStrictEqual("Bearer secret-token / test-request-id");
+  expect(interpolate("Bearer {{ env.API_TOKEN }} / {{ context.requestId }}", baseContext)).toStrictEqual(
+    "Bearer secret-token / test-request-id",
+  );
   expect(() => interpolate("{{ env.MISSING }}", baseContext)).toThrow(
     expect.objectContaining({
       name: "RuntimeError",
@@ -524,9 +491,7 @@ test("interpolate exposes only documented declarative values", () => {
   expect(() => interpolate("{{ request.url }}", baseContext)).toThrow(
     expect.objectContaining({
       name: "RuntimeError",
-      message: expect.stringContaining(
-        "Unsupported forwarding interpolation expression",
-      ),
+      message: expect.stringContaining("Unsupported forwarding interpolation expression"),
     }),
   );
 });
@@ -563,11 +528,7 @@ test("YAML request and response transformations remain declarative", () => {
     headers: { add: { "x-request-id": "{{ context.requestId }}" } },
   };
   expect(
-    applyYamlResponseForwardingConfig(
-      responseConfig,
-      { statusCode: 200, headers: {}, body: "original" },
-      baseContext,
-    ),
+    applyYamlResponseForwardingConfig(responseConfig, { statusCode: 200, headers: {}, body: "original" }, baseContext),
   ).toStrictEqual({
     statusCode: 200,
     headers: { "x-request-id": ["test-request-id"] },
@@ -658,19 +619,14 @@ test("YamlForwardingExecutor reports the network reason of failed requests", asy
     code: "TARGET_REQUEST_ERROR",
     message: "Forwarding request failed: fetch failed (ECONNREFUSED)",
   });
-  expect(warnings.flat()).toContainEqual(
-    expect.objectContaining({ message: "fetch failed" }),
-  );
+  expect(warnings.flat()).toContainEqual(expect.objectContaining({ message: "fetch failed" }));
 });
 
 test("YamlForwardingExecutor names the network reason of failed OAuth2 token requests", async () => {
   const warnings: unknown[][] = [];
-  const refused = Object.assign(
-    new Error("connect ECONNREFUSED 10.0.0.1:443"),
-    {
-      code: "ECONNREFUSED",
-    },
-  );
+  const refused = Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:443"), {
+    code: "ECONNREFUSED",
+  });
   const fetchError = new TypeError("fetch failed", { cause: refused });
   const executor = await createYamlForwardingExecutor({
     config: configFor(`

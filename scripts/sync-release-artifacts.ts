@@ -7,13 +7,10 @@ export type SyncReleaseArtifactsOptions = {
   releaseDate?: string;
 };
 
-const imagePattern =
-  /(ghcr\.io\/serviceware\/cloud-connector:)(\d+\.\d+\.\d+)/g;
+const imagePattern = /(ghcr\.io\/serviceware\/cloud-connector:)(\d+\.\d+\.\d+)/g;
 const textExtensions = [".md", ".yml", ".yaml"];
 
-export async function syncReleaseArtifacts(
-  options: SyncReleaseArtifactsOptions = {},
-): Promise<string[]> {
+export async function syncReleaseArtifacts(options: SyncReleaseArtifactsOptions = {}): Promise<string[]> {
   const root = options.root ?? process.cwd();
   const checkOnly = options.checkOnly ?? false;
   const version = await readVersion(root);
@@ -27,9 +24,7 @@ export async function syncReleaseArtifacts(
     const original = await readFile(path, "utf8");
     const matches = [...original.matchAll(imagePattern)];
     if (matches.length !== 1) {
-      throw new Error(
-        `${relativePath} must contain exactly one Cloud Connector image`,
-      );
+      throw new Error(`${relativePath} must contain exactly one Cloud Connector image`);
     }
 
     const updated = original.replace(imagePattern, `$1${version}`);
@@ -45,16 +40,11 @@ export async function syncReleaseArtifacts(
   const changelogPath = "CHANGELOG.md";
   const changelog = await readFile(join(root, changelogPath), "utf8");
   const escapedVersion = escapeRegExp(version);
-  const datedHeading = new RegExp(
-    `^## ${escapedVersion} - \\d{4}-\\d{2}-\\d{2}$`,
-    "m",
-  );
+  const datedHeading = new RegExp(`^## ${escapedVersion} - \\d{4}-\\d{2}-\\d{2}$`, "m");
 
   if (!datedHeading.test(changelog)) {
     if (checkOnly) {
-      throw new Error(
-        `${changelogPath} has no dated ${version} release heading`,
-      );
+      throw new Error(`${changelogPath} has no dated ${version} release heading`);
     }
 
     const undatedHeading = new RegExp(`^## ${escapedVersion}$`, "m");
@@ -62,12 +52,8 @@ export async function syncReleaseArtifacts(
       throw new Error(`${changelogPath} has no ${version} release heading`);
     }
 
-    const releaseDate =
-      options.releaseDate ?? new Date().toISOString().slice(0, 10);
-    const updated = changelog.replace(
-      undatedHeading,
-      `## ${version} - ${releaseDate}`,
-    );
+    const releaseDate = options.releaseDate ?? new Date().toISOString().slice(0, 10);
+    const updated = changelog.replace(undatedHeading, `## ${version} - ${releaseDate}`);
     await writeFile(join(root, changelogPath), updated);
     changedFiles.push(changelogPath);
   }
@@ -76,14 +62,10 @@ export async function syncReleaseArtifacts(
 }
 
 async function readVersion(root: string): Promise<string> {
-  const packageJson = JSON.parse(
-    await readFile(join(root, "package.json"), "utf8"),
-  );
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   const version = packageJson.version;
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(
-      `package.json version must use MAJOR.MINOR.PATCH, got ${version}`,
-    );
+    throw new Error(`package.json version must use MAJOR.MINOR.PATCH, got ${version}`);
   }
   return version;
 }
@@ -112,10 +94,7 @@ async function discoverImageReferenceFiles(root: string): Promise<string[]> {
   return references.sort();
 }
 
-async function listTextFiles(
-  root: string,
-  relativeDirectory: string,
-): Promise<string[]> {
+async function listTextFiles(root: string, relativeDirectory: string): Promise<string[]> {
   const result: string[] = [];
   try {
     const entries = await readdir(join(root, relativeDirectory), {
@@ -125,10 +104,7 @@ async function listTextFiles(
       const relativePath = `${relativeDirectory}/${entry.name}`;
       if (entry.isDirectory()) {
         result.push(...(await listTextFiles(root, relativePath)));
-      } else if (
-        entry.isFile() &&
-        textExtensions.some((extension) => entry.name.endsWith(extension))
-      ) {
+      } else if (entry.isFile() && textExtensions.some((extension) => entry.name.endsWith(extension))) {
         result.push(relativePath);
       }
     }
@@ -147,9 +123,7 @@ if (import.meta.main) {
   const changedFiles = await syncReleaseArtifacts({ checkOnly });
   const version = await readVersion(process.cwd());
   if (changedFiles.length > 0) {
-    console.log(
-      `Updated release artifacts for ${version}: ${changedFiles.join(", ")}`,
-    );
+    console.log(`Updated release artifacts for ${version}: ${changedFiles.join(", ")}`);
   } else {
     console.log(`Release artifacts already match ${version}`);
   }
