@@ -21,8 +21,7 @@
     "typescript/ban-types": "error",
     "typescript/no-empty-interface": "error",
     "typescript/no-explicit-any": "error",
-    "typescript/no-namespace": "error",
-    "vitest/no-conditional-expect": "off"
+    "typescript/no-namespace": "error"
   },
   "env": {
     "node": true,

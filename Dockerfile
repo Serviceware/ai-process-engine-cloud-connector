@@ -11,7 +11,9 @@ WORKDIR /app
 
 # Install production dependencies exactly as locked.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN corepack enable     && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm install --frozen-lockfile --prod --ignore-scripts     && rm -rf "$(pnpm store path)" /root/.cache
+RUN corepack enable \
+    && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm install --frozen-lockfile --prod --ignore-scripts \
+    && rm -rf "$(pnpm store path)" /root/.cache
 
 COPY runtime/ ./runtime/
 
