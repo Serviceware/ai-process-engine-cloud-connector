@@ -1,3 +1,6 @@
+import { once } from "node:events";
+import { createServer, type IncomingHttpHeaders } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -583,4 +586,70 @@ test("YAML validates rules, authentication, and path prefixes", () => {
     "- target: ^https://internal[.]example(?:/.*)?$\n  response:\n    body:\n      set: changed",
   ])
     expect(() => configFor(yaml)).toThrow(RuntimeError);
+});
+
+test("YamlForwardingExecutor lets fetch derive content-length and drops expect", async () => {
+  const received: IncomingHttpHeaders[] = [];
+  const target = createServer((request, response) => {
+    received.push(request.headers);
+    request.resume();
+    request.on("end", () => response.end("ok"));
+  });
+  target.listen(0, "127.0.0.1");
+  await once(target, "listening");
+  try {
+    const { port } = target.address() as AddressInfo;
+    const executor = await createYamlForwardingExecutor({
+      config: configFor("- target: ^http://127[.]0[.]0[.]1:[0-9]+/.*$"),
+      configPath: "/config/cloud-connector.yml",
+      env: {},
+      logger: silentLogger,
+    });
+
+    const response = await executor.execute({
+      type: "request",
+      requestId: "request-1",
+      request: {
+        method: "POST",
+        url: `http://127.0.0.1:${port}/items`,
+        headers: {
+          "content-length": ["3"],
+          expect: ["100-continue"],
+        },
+        body: "\u00e4\u00f6\u00fc",
+      },
+    });
+
+    expect(response.statusCode).toStrictEqual(200);
+    expect(received[0]["content-length"]).toStrictEqual("6");
+    expect(received[0].expect).toBeUndefined();
+  } finally {
+    target.close();
+  }
+});
+
+test("YamlForwardingExecutor reports the network reason of failed requests", async () => {
+  const closed = createServer();
+  closed.listen(0, "127.0.0.1");
+  await once(closed, "listening");
+  const { port } = closed.address() as AddressInfo;
+  closed.close();
+  await once(closed, "close");
+  const executor = await createYamlForwardingExecutor({
+    config: configFor("- target: ^http://127[.]0[.]0[.]1:[0-9]+/.*$"),
+    configPath: "/config/cloud-connector.yml",
+    env: {},
+    logger: silentLogger,
+  });
+
+  const failure = executor.execute({
+    type: "request",
+    requestId: "request-1",
+    request: { method: "GET", url: `http://127.0.0.1:${port}/items` },
+  });
+
+  await expect(failure).rejects.toMatchObject({
+    code: "TARGET_REQUEST_ERROR",
+    message: "Forwarding request failed: fetch failed (ECONNREFUSED)",
+  });
 });

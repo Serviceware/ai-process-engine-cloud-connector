@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { promisify } from "node:util";
 
 export type Bump = "patch" | "minor" | "major";
@@ -104,7 +104,8 @@ async function addChangeset(args: string[]): Promise<void> {
     try {
       const selected =
         (
-          await readline.question(
+          await ask(
+            readline,
             "Release impact (patch, minor, or major) [patch]: ",
           )
         )
@@ -117,7 +118,7 @@ async function addChangeset(args: string[]): Promise<void> {
       ) {
         throw new Error("Release impact must be patch, minor, or major");
       }
-      const summary = (await readline.question("User-facing summary: ")).trim();
+      const summary = (await ask(readline, "User-facing summary: ")).trim();
       if (!summary) throw new Error("A user-facing summary is required");
       content = `---\n"${packageName}": ${selected}\n---\n\n${summary}\n`;
     } finally {
@@ -128,6 +129,20 @@ async function addChangeset(args: string[]): Promise<void> {
   const path = `${changesetDirectory}/${randomUUID().slice(0, 8)}.md`;
   await writeFile(path, content, { flag: "wx" });
   console.log(`Created ${path}`);
+}
+
+/** `question()` never settles once stdin has ended. */
+async function ask(readline: Interface, query: string): Promise<string> {
+  const closed = new Promise<undefined>((resolve) =>
+    readline.once("close", () => resolve(undefined)),
+  );
+  const answer = await Promise.race([readline.question(query), closed]);
+  if (answer === undefined) {
+    throw new Error(
+      `Standard input closed before answering "${query.trim()}"; run interactively or pass --empty`,
+    );
+  }
+  return answer;
 }
 
 async function runGit(args: string[]): Promise<string> {

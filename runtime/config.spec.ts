@@ -289,3 +289,28 @@ forwarding:
     combineConfig(watchdogDisabled, fastHeartbeat).heartbeatIntervalMs,
   ).toStrictEqual(5_000);
 });
+
+test("parseVolumeConfig keeps YAML 1.1 integer forms", () => {
+  for (const [source, seconds] of [
+    ["30_000", 30_000],
+    ["010", 8],
+    ["0b11", 3],
+    ["0x1_F", 31],
+    ["1:30", 90],
+    ["30", 30],
+    ["0x1E", 30],
+  ] as const) {
+    const config = parseVolumeConfig(`
+connection:
+  heartbeatIntervalSeconds: ${source}
+forwarding:
+  - target: ^https://internal[.]example(?:/.*)?$
+`);
+    expect({ source, ms: config.connection.heartbeatIntervalMs }).toStrictEqual(
+      {
+        source,
+        ms: seconds * 1000,
+      },
+    );
+  }
+});

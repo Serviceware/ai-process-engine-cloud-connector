@@ -15,7 +15,7 @@ import type {
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import { createAllowlistedFetch, type Fetcher } from "./outbound-url-policy.ts";
-import { RuntimeError } from "./runtime-error.ts";
+import { describeError, RuntimeError } from "./runtime-error.ts";
 
 export type YamlRequestForwardingConfig = RequestForwardingConfig;
 export type YamlResponseForwardingConfig = ResponseForwardingConfig;
@@ -178,7 +178,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
 
     const finalUrl = parseRequestedUrl(forwardedRequest.url, this.configPath);
     const headers = buildHeaders(forwardedRequest.headers);
-    removeHopByHopHeaders(headers);
+    removeTransportHeaders(headers);
     this.logger.info(
       `Forwarding request ${frame.requestId}: ${forwardedRequest.method} to ${finalUrl.origin}`,
     );
@@ -214,9 +214,10 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
           },
         );
       }
+      this.logger.warn(`Forwarding request ${frame.requestId} failed`, error);
       throw new RuntimeError(
         "TARGET_REQUEST_ERROR",
-        `Forwarding request failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Forwarding request failed: ${describeError(error)}`,
         { cause: error },
       );
     }
@@ -320,9 +321,10 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
         signal: AbortSignal.timeout(timeout),
       });
     } catch (error) {
+      this.logger.warn("OAuth2 token request failed", error);
       throw new RuntimeError(
         "TARGET_REQUEST_ERROR",
-        "OAuth2 token request failed",
+        `OAuth2 token request failed: ${describeError(error)}`,
         {
           cause: error,
         },
@@ -696,10 +698,13 @@ function headersToRecord(headers: Headers): Record<string, string[]> {
   return result;
 }
 
-function removeHopByHopHeaders(headers: Headers): void {
+/** Hop-by-hop headers plus those fetch derives from the body itself. */
+function removeTransportHeaders(headers: Headers): void {
   for (const name of [
     "host",
     "connection",
+    "content-length",
+    "expect",
     "keep-alive",
     "proxy-authenticate",
     "proxy-authorization",

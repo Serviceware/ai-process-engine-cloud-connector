@@ -1,5 +1,5 @@
-import { once } from "node:events";
 import type { Server } from "node:http";
+import { setGlobalDispatcher } from "undici";
 import { ConfigReloader, watchConfigFile } from "./config-reloader.ts";
 import {
   combineConfig,
@@ -16,6 +16,7 @@ import {
   type ProtocolExecutor,
   ReloadableProtocolExecutor,
 } from "./connector.ts";
+import { createHttpDispatcher } from "./http-dispatcher.ts";
 import { serve } from "./http-server.ts";
 import type { ReloadableRuntimeLogger, RuntimeLogger } from "./logger.ts";
 import { createLogger, createReloadableLogger } from "./logger.ts";
@@ -32,6 +33,7 @@ import {
 const EX_SOFTWARE = 70;
 const EX_OSERR = 71;
 const EX_CONFIG = 78;
+const shutdownGraceMs = 2_000;
 
 export function createProtocolExecutor(
   config: ConnectorConfig,
@@ -154,16 +156,17 @@ async function superviseTask(
 }
 
 /** Rebinds the fixed local probe server if it stops unexpectedly. */
-async function superviseHttpServer(
+export async function superviseHttpServer(
   initial: Server,
-  handler: (request: Request) => Response,
+  rebind: () => Promise<Server>,
   signal: AbortSignal,
   logger: RuntimeLogger,
 ): Promise<void> {
   let server: Server | undefined = initial;
   while (!signal.aborted) {
     if (server !== undefined) {
-      if (server.listening) await once(server, "close");
+      // serve() logs server errors; only a close ends this server.
+      if (server.listening) await closed(server);
       if (signal.aborted) break;
       logger.error("HTTP server stopped unexpectedly; rebinding");
     }
@@ -172,12 +175,16 @@ async function superviseHttpServer(
     if (signal.aborted) break;
 
     try {
-      server = await serveProbes(handler, signal, logger);
+      server = await rebind();
     } catch (error) {
       server = undefined;
       logger.error("Failed to rebind HTTP server", error);
     }
   }
+}
+
+function closed(server: Server): Promise<void> {
+  return new Promise((resolve) => server.once("close", () => resolve()));
 }
 
 function logOutboundPolicy(
@@ -191,6 +198,7 @@ function logOutboundPolicy(
 // Main entry point
 if (import.meta.main) {
   let shuttingDown = false;
+  setGlobalDispatcher(createHttpDispatcher());
 
   const configPath = process.argv[2] ?? defaultConfigPath;
   let environment: EnvironmentConfig;
@@ -290,7 +298,12 @@ if (import.meta.main) {
   });
 
   await Promise.all([
-    superviseHttpServer(server, handler, abortController.signal, logger),
+    superviseHttpServer(
+      server,
+      () => serveProbes(handler, abortController.signal, logger),
+      abortController.signal,
+      logger,
+    ),
     superviseTask(
       "websocket-client",
       () => websocketClient.run(abortController.signal),
@@ -304,4 +317,6 @@ if (import.meta.main) {
       logger,
     ),
   ]);
+  // A WebSocket whose peer never answers the close frame keeps its socket open.
+  setTimeout(() => process.exit(0), shutdownGraceMs).unref();
 }

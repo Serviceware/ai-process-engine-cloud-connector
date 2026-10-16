@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect } from "node:net";
 import { expect, test } from "vitest";
 import { serve } from "./http-server.ts";
 import { createLogger } from "./logger.ts";
@@ -104,6 +104,51 @@ test("serve rejects when the port cannot be bound", async () => {
         port: (first.address() as AddressInfo).port,
       }),
     ).rejects.toThrow(expect.objectContaining({ code: "EADDRINUSE" }));
+  } finally {
+    abortController.abort();
+  }
+});
+
+test("serve answers request lines the Fetch API cannot represent", async () => {
+  const abortController = new AbortController();
+  const server = await serve(
+    (request) =>
+      new URL(request.url).pathname === "/health"
+        ? new Response("ok")
+        : new Response("Not found", { status: 404 }),
+    {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger,
+    },
+  );
+  const errorsBefore = errors.length;
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const statusLine = async (requestLine: string) => {
+      const socket = connect(port, "127.0.0.1");
+      await once(socket, "connect");
+      socket.end(`${requestLine}\r\nHost: localhost\r\n\r\n`);
+      let response = "";
+      for await (const chunk of socket) response += chunk;
+      return response.split("\r\n")[0];
+    };
+
+    expect(await statusLine("GET // HTTP/1.1")).toStrictEqual(
+      "HTTP/1.1 404 Not Found",
+    );
+    expect(await statusLine("GET * HTTP/1.1")).toStrictEqual(
+      "HTTP/1.1 400 Bad Request",
+    );
+    expect(await statusLine("TRACE /health HTTP/1.1")).toStrictEqual(
+      "HTTP/1.1 405 Method Not Allowed",
+    );
+    expect(await statusLine("CONNECT localhost:1 HTTP/1.1")).toStrictEqual(
+      "HTTP/1.1 405 Method Not Allowed",
+    );
+    expect(errors.length).toStrictEqual(errorsBefore);
   } finally {
     abortController.abort();
   }

@@ -21,6 +21,8 @@ forward-proxy boundary.
 5. `runtime/yaml-forwarding.ts` resolves the forwarding policy and calls the
    selected HTTP target.
 6. `runtime/runtime-status.ts` supplies state for the local health endpoints.
+7. `runtime/http-server.ts` serves the local health endpoints, and
+   `runtime/http-dispatcher.ts` routes outbound connections through proxies.
 
 Keep these responsibilities separated. Protocol handling must not silently
 bypass forwarding policy, and configuration loading must not perform network

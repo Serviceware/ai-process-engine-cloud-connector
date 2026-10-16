@@ -1,11 +1,17 @@
-import { expect, test } from "vitest";
+import type { Server } from "node:http";
+import { expect, test, vi } from "vitest";
 import {
   combineConfig,
   loadEnvironmentConfig,
   parseVolumeConfig,
 } from "./config.ts";
 import { createLogger } from "./logger.ts";
-import { createHandler, createProtocolExecutor } from "./main.ts";
+import { serve } from "./http-server.ts";
+import {
+  createHandler,
+  createProtocolExecutor,
+  superviseHttpServer,
+} from "./main.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
 
 const silentLogger = createLogger("error", {
@@ -108,4 +114,34 @@ test("createProtocolExecutor uses only the validated YAML forwarding snapshot", 
       message: expect.stringContaining("forwarding target rule"),
     }),
   );
+});
+
+test("superviseHttpServer rebinds after a server error and a later close", async () => {
+  const abortController = new AbortController();
+  const bind = () =>
+    serve(() => new Response("ok"), {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger: silentLogger,
+    });
+  const initial = await bind();
+  let rebound: Server | undefined;
+  const supervisor = superviseHttpServer(
+    initial,
+    async () => (rebound = await bind()),
+    abortController.signal,
+    silentLogger,
+  );
+
+  try {
+    initial.emit("error", new Error("accept EMFILE"));
+    initial.close();
+    await vi.waitFor(() => expect(rebound?.listening).toBeTruthy(), {
+      timeout: 5_000,
+    });
+  } finally {
+    abortController.abort();
+  }
+  await supervisor;
 });

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, type ScalarTag } from "yaml";
 import { defaultLogLevel, isLogLevel, type LogLevel } from "./logger.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
@@ -221,13 +221,49 @@ export async function loadVolumeConfig(path: string): Promise<VolumeConfig> {
   return parseVolumeConfig(content, path);
 }
 
+/**
+ * Keeps the YAML 1.1 integer forms that earlier releases accepted: digit
+ * separators, `0b` binary, leading-zero octal, and sexagesimal values.
+ */
+const yaml11Integer: ScalarTag = {
+  tag: "tag:yaml.org,2002:int",
+  default: true,
+  test: /^[-+]?(?:0b[01_]+|0x[0-9a-fA-F_]+|0[0-7_]+|[1-9][0-9_]*(?::[0-5]?[0-9])+|[1-9][0-9]*_[0-9_]*)$/,
+  resolve: resolveYaml11Integer,
+};
+
+function resolveYaml11Integer(source: string): number {
+  const sign = source.startsWith("-") ? -1 : 1;
+  const digits = source.replace(/^[-+]/, "").replaceAll("_", "");
+  if (digits.includes(":")) {
+    return (
+      sign *
+      digits
+        .split(":")
+        .reduce((total, part) => total * 60 + Number.parseInt(part, 10), 0)
+    );
+  }
+  if (digits.startsWith("0b"))
+    return sign * Number.parseInt(digits.slice(2), 2);
+  if (digits.startsWith("0x")) {
+    return sign * Number.parseInt(digits.slice(2), 16);
+  }
+  if (digits.length > 1 && digits.startsWith("0")) {
+    return sign * Number.parseInt(digits, 8);
+  }
+  return sign * Number.parseInt(digits, 10);
+}
+
 export function parseVolumeConfig(
   content: string,
   path = "cloud-connector.yml",
 ): VolumeConfig {
   let value: unknown;
   try {
-    value = parseYaml(content, { merge: true });
+    value = parseYaml(content, {
+      merge: true,
+      customTags: (tags) => [yaml11Integer, ...tags],
+    });
   } catch (error) {
     throw new RuntimeError(
       "YAML_PARSE_ERROR",

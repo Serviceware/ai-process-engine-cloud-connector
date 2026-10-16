@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { RuntimeError, toCloudConnectorError } from "./runtime-error.ts";
+import {
+  describeError,
+  RuntimeError,
+  toCloudConnectorError,
+} from "./runtime-error.ts";
 
 test("toCloudConnectorError preserves RuntimeError codes", () => {
   expect(
@@ -19,4 +23,22 @@ test("toCloudConnectorError normalizes unexpected errors", () => {
     code: "UNEXPECTED_ERROR",
     message: "plain failure",
   });
+});
+
+test("describeError names cause codes without their addresses", () => {
+  const refused = Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:1"), {
+    code: "ECONNREFUSED",
+  });
+  expect(
+    describeError(new TypeError("fetch failed", { cause: refused })),
+  ).toStrictEqual("fetch failed (ECONNREFUSED)");
+  expect(
+    describeError(
+      new TypeError("fetch failed", {
+        cause: new AggregateError([refused, refused]),
+      }),
+    ),
+  ).toStrictEqual("fetch failed (ECONNREFUSED)");
+  expect(describeError(new Error("Boom"))).toStrictEqual("Boom");
+  expect(describeError("plain failure")).toStrictEqual("plain failure");
 });
