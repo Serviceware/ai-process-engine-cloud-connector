@@ -5,6 +5,23 @@
     "correctness": "error"
   },
   "rules": {
+    "no-array-constructor": "error",
+    "no-case-declarations": "error",
+    "no-empty": "error",
+    "no-fallthrough": "error",
+    "no-inner-declarations": "error",
+    "no-prototype-builtins": "error",
+    "no-redeclare": "error",
+    "no-regex-spaces": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "require-await": "error",
+    "typescript/adjacent-overload-signatures": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/ban-types": "error",
+    "typescript/no-empty-interface": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-namespace": "error",
     "vitest/no-conditional-expect": "off"
   },
   "env": {

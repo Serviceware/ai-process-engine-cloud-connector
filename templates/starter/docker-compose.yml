@@ -39,7 +39,14 @@ services:
       - ./config:/config:ro
 
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test:
+        [
+          "CMD",
+          "node",
+          "--permission",
+          "--allow-fs-read=/app/",
+          "runtime/health-check.ts",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
