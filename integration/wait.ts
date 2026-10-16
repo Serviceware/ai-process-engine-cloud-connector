@@ -12,9 +12,7 @@ export async function waitFor<T>(
     const value = await probe();
     if (value !== undefined) return value;
     if (Date.now() >= deadline) {
-      throw new Error(
-        `Timed out after ${timeoutMs}ms waiting for ${description}`,
-      );
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${description}`);
     }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }

@@ -1,9 +1,5 @@
-import { assertEquals } from "@std/assert";
-import {
-  ConnectorRuntime,
-  type ProtocolExecutor,
-  ReloadableProtocolExecutor,
-} from "./connector.ts";
+import { expect, test } from "vitest";
+import { ConnectorRuntime, type ProtocolExecutor, ReloadableProtocolExecutor } from "./connector.ts";
 import type { CloudConnectorMessageFrame } from "./generated/models.ts";
 import { createLogger } from "./logger.ts";
 import type { WritableFrame } from "./protocol.ts";
@@ -15,7 +11,7 @@ const silentLogger = createLogger("error", {
   warn: () => undefined,
 });
 
-Deno.test("ConnectorRuntime ignores unsupported inbound response frames", async () => {
+test("ConnectorRuntime ignores unsupported inbound response frames", async () => {
   const warnings: string[] = [];
   const runtime = createRuntime({
     warn: (...data: unknown[]) => {
@@ -24,18 +20,15 @@ Deno.test("ConnectorRuntime ignores unsupported inbound response frames", async 
   });
   const sentFrames: WritableFrame[] = [];
 
-  await runtime.handleFrame(
-    { type: "response", requestId: "request-1" } as CloudConnectorMessageFrame,
-    (frame) => {
-      sentFrames.push(frame);
-    },
-  );
+  await runtime.handleFrame({ type: "response", requestId: "request-1" } as CloudConnectorMessageFrame, (frame) => {
+    sentFrames.push(frame);
+  });
 
-  assertEquals(sentFrames, []);
-  assertEquals(warnings, ["Ignoring unsupported inbound frame type: response"]);
+  expect(sentFrames).toStrictEqual([]);
+  expect(warnings).toStrictEqual(["Ignoring unsupported inbound frame type: response"]);
 });
 
-Deno.test("ConnectorRuntime executes protocol executor for request frames", async () => {
+test("ConnectorRuntime executes protocol executor for request frames", async () => {
   const sentFrames: WritableFrame[] = [];
   const protocolExecutor = {
     execute: () =>
@@ -50,26 +43,31 @@ Deno.test("ConnectorRuntime executes protocol executor for request frames", asyn
     logger: silentLogger,
   });
 
-  await runtime.handleFrame({
-    type: "request",
-    requestId: "request-1",
-    request: { method: "GET", url: "/users" },
-  }, (frame) => {
-    sentFrames.push(frame);
-  });
-
-  assertEquals(sentFrames, [{
-    type: "response",
-    requestId: "request-1",
-    response: {
-      statusCode: 207,
-      headers: { "x-mode": ["forwarding"] },
-      body: "forwarding-response",
+  await runtime.handleFrame(
+    {
+      type: "request",
+      requestId: "request-1",
+      request: { method: "GET", url: "/users" },
     },
-  }]);
+    (frame) => {
+      sentFrames.push(frame);
+    },
+  );
+
+  expect(sentFrames).toStrictEqual([
+    {
+      type: "response",
+      requestId: "request-1",
+      response: {
+        statusCode: 207,
+        headers: { "x-mode": ["forwarding"] },
+        body: "forwarding-response",
+      },
+    },
+  ]);
 });
 
-Deno.test("ConnectorRuntime attaches to WebSocket messages and serializes responses", async () => {
+test("ConnectorRuntime attaches to WebSocket messages and serializes responses", async () => {
   const socket = new FakeSocket();
   const runtime = createRuntime();
 
@@ -85,17 +83,19 @@ Deno.test("ConnectorRuntime attaches to WebSocket messages and serializes respon
   );
   await nextTick();
 
-  assertEquals(socket.sent.map((frame) => JSON.parse(frame)), [{
-    type: "response",
-    requestId: "request-1",
-    response: { statusCode: 204 },
-  }]);
+  expect(socket.sent.map((frame) => JSON.parse(frame))).toStrictEqual([
+    {
+      type: "response",
+      requestId: "request-1",
+      response: { statusCode: 204 },
+    },
+  ]);
 });
 
-Deno.test("ConnectorRuntime bounds concurrency and drains accepted requests", async () => {
+test("ConnectorRuntime bounds concurrency and drains accepted requests", async () => {
   let release!: () => void;
   let started = false;
-  const gate = new Promise<void>((resolve) => release = resolve);
+  const gate = new Promise<void>((resolve) => (release = resolve));
   const runtime = new ConnectorRuntime({
     protocolExecutor: {
       execute: async () => {
@@ -126,17 +126,13 @@ Deno.test("ConnectorRuntime bounds concurrency and drains accepted requests", as
   socket.dispatchEvent(request("draining"));
   await nextTick();
 
-  const errors = socket.sent.map((frame) => JSON.parse(frame))
-    .filter((frame) => frame.error);
-  assertEquals(errors.map((frame) => frame.error.code), [
-    "TOO_MANY_REQUESTS",
-    "CONNECTOR_DRAINING",
-  ]);
+  const errors = socket.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.error);
+  expect(errors.map((frame) => frame.error.code)).toStrictEqual(["TOO_MANY_REQUESTS", "CONNECTOR_DRAINING"]);
   release();
-  assertEquals(await draining, true);
+  expect(await draining).toStrictEqual(true);
 });
 
-Deno.test("ReloadableProtocolExecutor switches subsequent requests atomically", async () => {
+test("ReloadableProtocolExecutor switches subsequent requests atomically", async () => {
   const executor = new ReloadableProtocolExecutor({
     execute: () => Promise.resolve({ statusCode: 200, body: "first" }),
   });
@@ -146,16 +142,14 @@ Deno.test("ReloadableProtocolExecutor switches subsequent requests atomically", 
     request: { method: "GET", url: "/users" },
   } as const;
 
-  assertEquals((await executor.execute(frame)).body, "first");
+  expect((await executor.execute(frame)).body).toStrictEqual("first");
   executor.replace({
     execute: () => Promise.resolve({ statusCode: 200, body: "second" }),
   });
-  assertEquals((await executor.execute(frame)).body, "second");
+  expect((await executor.execute(frame)).body).toStrictEqual("second");
 });
 
-function createRuntime(
-  logger?: Partial<typeof silentLogger>,
-): ConnectorRuntime {
+function createRuntime(logger?: Partial<typeof silentLogger>): ConnectorRuntime {
   return new ConnectorRuntime({
     protocolExecutor: {
       execute: () => Promise.resolve({ statusCode: 204 }),

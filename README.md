@@ -468,6 +468,17 @@ To set an optional variable, set it in the terminal like the required ones and
 add another `--env NAME` option to `docker run`, for example
 `--env CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`.
 
+Outbound connections honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and
+`NO_PROXY` variables. `HTTP_PROXY` also applies to HTTPS targets when
+`HTTPS_PROXY` is not set. `NO_PROXY` takes host names, domain suffixes, IP
+addresses, and ports, but not CIDR ranges. To trust an internal certificate
+authority, place its PEM bundle in the configuration directory and set
+`NODE_EXTRA_CA_CERTS` to its container path, for example
+`/config/internal-ca.pem`.
+
+Targets on ports that the Fetch standard blocks, such as `25`, `6000`, or
+`10080`, cannot be forwarded and fail with `TARGET_REQUEST_ERROR`.
+
 ### Volume
 
 The connector uses one configuration volume:
@@ -477,9 +488,11 @@ The connector uses one configuration volume:
 | `./config` | `/config`      | Read-only |   Yes    | Provides `cloud-connector.yml` and supports hot reloads. |
 
 Mount the directory, not only the file, so atomic file replacements and
-projected-volume updates can be detected. The connector listens on port `8080`
-for `/health` and `/ready`. Publishing that port is useful for host-based
-monitoring but is not required for the outbound platform connection.
+projected-volume updates can be detected. The container runs as the non-root
+user `node` (uid 1000), which must be able to read the mounted files. The
+connector listens on port `8080` for `/health` and `/ready`. Publishing that
+port is useful for host-based monitoring but is not required for the outbound
+platform connection.
 
 ### Docker Compose
 
@@ -538,28 +551,31 @@ by the current platform protocol.
 
 ## Development
 
-Install [Deno Version Manager (`dvm`)](https://github.com/justjavac/dvm) if it
-is not already available. It installs Deno without requiring a pre-existing Deno
-installation:
+Install [Fast Node Manager (`fnm`)](https://github.com/Schniz/fnm) if it is not
+already available. It reads `.node-version` on Windows, macOS, and Linux:
 
 ```bash
 # macOS, Linux, or WSL
-curl -fsSL https://raw.githubusercontent.com/justjavac/dvm/main/install.sh | sh
+curl -fsSL https://fnm.vercel.app/install | bash
 ```
 
-On Windows, run the installer in PowerShell instead:
+On Windows, install it with winget in PowerShell instead:
 
 ```powershell
-irm https://raw.githubusercontent.com/justjavac/dvm/main/install.ps1 | iex
+winget install Schniz.fnm
 ```
 
-Open a new shell, then install and select the Deno version from `.dvmrc` before
-running the complete local check suite:
+Set up your shell as described in the
+[fnm shell setup](https://github.com/Schniz/fnm#shell-setup), open a new shell,
+then install and select the Node.js version from `.node-version`. Corepack
+provides the pnpm version pinned in `package.json`:
 
 ```bash
-dvm install
-dvm use
-deno task ci
+fnm install
+fnm use
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run ci
 ```
 
 See [Contributing](CONTRIBUTING.md) for the contribution workflow and

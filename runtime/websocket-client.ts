@@ -1,10 +1,9 @@
-import {
-  type AccessTokenOptions,
-  generateAccessToken,
-} from "./access-token.ts";
+import { getGlobalDispatcher } from "undici";
+import { type AccessTokenOptions, generateAccessToken } from "./access-token.ts";
 import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
 import type { WebSocketAttachment } from "./connector.ts";
+import { recordFailure } from "./http-dispatcher.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
@@ -23,14 +22,25 @@ type OpenOutcome = {
  */
 export class ReloadableWebSocketClient {
   private generationAbort?: AbortController;
+  private config: ConnectorConfig;
+  private readonly runtime: ConnectorRuntime;
+  private readonly status: RuntimeStatus;
+  private readonly logger: RuntimeLogger;
+  private readonly controlPlaneFetch: Fetcher;
 
   constructor(
-    private config: ConnectorConfig,
-    private readonly runtime: ConnectorRuntime,
-    private readonly status: RuntimeStatus,
-    private readonly logger: RuntimeLogger,
-    private readonly controlPlaneFetch: Fetcher = globalThis.fetch,
-  ) {}
+    config: ConnectorConfig,
+    runtime: ConnectorRuntime,
+    status: RuntimeStatus,
+    logger: RuntimeLogger,
+    controlPlaneFetch: Fetcher = globalThis.fetch,
+  ) {
+    this.config = config;
+    this.runtime = runtime;
+    this.status = status;
+    this.logger = logger;
+    this.controlPlaneFetch = controlPlaneFetch;
+  }
 
   replace(config: ConnectorConfig): void {
     const connectionChanged =
@@ -44,10 +54,7 @@ export class ReloadableWebSocketClient {
     while (!signal.aborted) {
       const generationAbort = new AbortController();
       this.generationAbort = generationAbort;
-      const generationSignal = AbortSignal.any([
-        signal,
-        generationAbort.signal,
-      ]);
+      const generationSignal = AbortSignal.any([signal, generationAbort.signal]);
 
       await runCloudWebSocketClient(
         this.config,
@@ -62,9 +69,7 @@ export class ReloadableWebSocketClient {
         this.generationAbort = undefined;
       }
       if (!signal.aborted && !generationAbort.signal.aborted) {
-        this.logger.error(
-          "Cloud Connector WebSocket client exited unexpectedly; restarting",
-        );
+        this.logger.error("Cloud Connector WebSocket client exited unexpectedly; restarting");
         await delay(1_000, signal);
       }
     }
@@ -96,14 +101,7 @@ export async function runCloudWebSocketClient(
 
     try {
       logger.info(`Opening Cloud Connector WebSocket (attempt ${attempt + 1})`);
-      const outcome = await openWebSocket(
-        config,
-        runtime,
-        signal,
-        status,
-        logger,
-        controlPlaneFetch,
-      );
+      const outcome = await openWebSocket(config, runtime, signal, status, logger, controlPlaneFetch);
       attempt = outcome.stableOpen ? 0 : attempt + 1;
     } catch (error) {
       attempt += 1;
@@ -166,9 +164,7 @@ async function openWebSocket(
   logger: RuntimeLogger,
   controlPlaneFetch: Fetcher,
 ): Promise<OpenOutcome> {
-  const accessToken = await generateAccessToken(
-    getAccessTokenOptions(config, signal, controlPlaneFetch),
-  );
+  const accessToken = await generateAccessToken(getAccessTokenOptions(config, signal, controlPlaneFetch));
 
   return new Promise<OpenOutcome>((resolve, reject) => {
     // The signal may have been aborted while the token was being fetched.
@@ -179,10 +175,12 @@ async function openWebSocket(
       return;
     }
 
+    let failure: string | undefined;
     const socket = new WebSocket(config.websocketUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      dispatcher: getGlobalDispatcher().compose(recordFailure((reason) => (failure = reason))),
     });
     const attachment: WebSocketAttachment = runtime.attachWebSocket(socket);
 
@@ -205,25 +203,25 @@ async function openWebSocket(
       closeRequested = true;
       status.connectionState = "disconnected";
       clearHeartbeat();
-      void attachment.drain(config.drainTimeoutMs).then((drained) => {
-        if (!drained) {
-          logger.warn(
-            `Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`,
-          );
-        }
-        try {
-          socket.close();
-        } catch {
-          // already closing/closed
-        }
-        if (!settled) {
-          forceSettleTimer = setTimeout(() => {
-            const stableOpen = opened &&
-              (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
-            settle({ stableOpen });
-          }, 1_000);
-        }
-      }).catch(fail);
+      void attachment
+        .drain(config.drainTimeoutMs)
+        .then((drained) => {
+          if (!drained) {
+            logger.warn(`Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`);
+          }
+          try {
+            socket.close();
+          } catch {
+            // already closing/closed
+          }
+          if (!settled) {
+            forceSettleTimer = setTimeout(() => {
+              const stableOpen = opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
+              settle({ stableOpen });
+            }, 1_000);
+          }
+        })
+        .catch(fail);
     };
     const abort = () => closeSocket();
 
@@ -263,11 +261,7 @@ async function openWebSocket(
         } catch {
           // already closing/closed
         }
-        fail(
-          new Error(
-            `Cloud Connector WebSocket did not open within ${config.connectTimeoutMs}ms`,
-          ),
-        );
+        fail(new Error(`Cloud Connector WebSocket did not open within ${config.connectTimeoutMs}ms`));
       }
     }, config.connectTimeoutMs);
 
@@ -305,12 +299,9 @@ async function openWebSocket(
           if (config.heartbeatTimeoutFactor > 0) {
             const lastInbound = status.lastInboundAt ?? openedAt;
             const silentFor = now - lastInbound;
-            const limit = config.heartbeatIntervalMs *
-              config.heartbeatTimeoutFactor;
+            const limit = config.heartbeatIntervalMs * config.heartbeatTimeoutFactor;
             if (silentFor > limit) {
-              logger.warn(
-                `Cloud Connector WebSocket silent for ${silentFor}ms; reconnecting`,
-              );
+              logger.warn(`Cloud Connector WebSocket silent for ${silentFor}ms; reconnecting`);
               // Peer is silent (half-open / dead): force reconnect.
               closeSocket();
             }
@@ -325,7 +316,7 @@ async function openWebSocket(
     socket.addEventListener("error", (event) => {
       if (!opened) {
         fail(
-          new Error("Unable to open Cloud Connector WebSocket", {
+          new Error(`Unable to open Cloud Connector WebSocket${failure ? `: ${failure}` : ""}`, {
             cause: event,
           }),
         );
@@ -334,18 +325,13 @@ async function openWebSocket(
     });
 
     socket.addEventListener("close", () => {
-      const stableOpen = opened &&
-        (Date.now() - openedAt) >= config.reconnectStableThresholdMs;
+      const stableOpen = opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
       settle({ stableOpen });
     });
   });
 }
 
-function getAccessTokenOptions(
-  config: ConnectorConfig,
-  signal: AbortSignal,
-  fetcher: Fetcher,
-): AccessTokenOptions {
+function getAccessTokenOptions(config: ConnectorConfig, signal: AbortSignal, fetcher: Fetcher): AccessTokenOptions {
   return {
     host: config.cloudConnectorHost,
     clientId: config.cloudConnectorClientId,

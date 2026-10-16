@@ -1,15 +1,15 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 import { createLogger, createReloadableLogger, isLogLevel } from "./logger.ts";
 
-Deno.test("isLogLevel accepts supported log levels only", () => {
-  assertEquals(isLogLevel("error"), true);
-  assertEquals(isLogLevel("warn"), true);
-  assertEquals(isLogLevel("info"), true);
-  assertEquals(isLogLevel("debug"), true);
-  assertEquals(isLogLevel("trace"), false);
+test("isLogLevel accepts supported log levels only", () => {
+  expect(isLogLevel("error")).toStrictEqual(true);
+  expect(isLogLevel("warn")).toStrictEqual(true);
+  expect(isLogLevel("info")).toStrictEqual(true);
+  expect(isLogLevel("debug")).toStrictEqual(true);
+  expect(isLogLevel("trace")).toStrictEqual(false);
 });
 
-Deno.test("createReloadableLogger applies a new YAML level immediately", () => {
+test("createReloadableLogger applies a new YAML level immediately", () => {
   const entries: string[] = [];
   const sink = {
     error: (...data: unknown[]) => entries.push(`error:${data.join(" ")}`),
@@ -23,11 +23,11 @@ Deno.test("createReloadableLogger applies a new YAML level immediately", () => {
   logger.setLevel("debug");
   logger.info("visible");
 
-  assertEquals(logger.level(), "debug");
-  assertEquals(entries, ["info:[cloud-connector] INFO visible"]);
+  expect(logger.level()).toStrictEqual("debug");
+  expect(entries).toStrictEqual(["info:[cloud-connector] INFO visible"]);
 });
 
-Deno.test("createLogger filters messages by level", () => {
+test("createLogger filters messages by level", () => {
   const entries: string[] = [];
   const sink = {
     error: (...data: unknown[]) => entries.push(`error:${data.join(" ")}`),
@@ -42,8 +42,5 @@ Deno.test("createLogger filters messages by level", () => {
   logger.info("hidden");
   logger.debug("hidden");
 
-  assertEquals(entries, [
-    "error:[cloud-connector] ERROR boom",
-    "warn:[cloud-connector] WARN careful",
-  ]);
+  expect(entries).toStrictEqual(["error:[cloud-connector] ERROR boom", "warn:[cloud-connector] WARN careful"]);
 });

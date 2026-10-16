@@ -1,6 +1,7 @@
 **
 !Dockerfile
-!deno.json
-!deno.lock
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
 !runtime/
 !runtime/**

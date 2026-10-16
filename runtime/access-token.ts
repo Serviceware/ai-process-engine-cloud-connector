@@ -13,10 +13,7 @@ export type AccessTokenOptions = {
 const defaultTokenFetchTimeoutMs = 10_000;
 
 /** Combines the per-fetch timeout with an optional external abort signal. */
-function fetchSignal(
-  timeoutMs: number,
-  external?: AbortSignal,
-): AbortSignal {
+function fetchSignal(timeoutMs: number, external?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
   return external ? AbortSignal.any([timeout, external]) : timeout;
 }
@@ -31,64 +28,44 @@ type TokenResponse = {
   access_token?: unknown;
 };
 
-export async function generateAccessToken(
-  options: AccessTokenOptions,
-): Promise<string> {
+export async function generateAccessToken(options: AccessTokenOptions): Promise<string> {
   const timeoutMs = options.timeoutMs ?? defaultTokenFetchTimeoutMs;
   const fetcher = options.fetcher ?? globalThis.fetch;
-  const wellKnownResponse = await fetcher(
-    joinUrl(options.host, ".well-known"),
-    {
-      signal: fetchSignal(timeoutMs, options.signal),
-    },
-  );
+  const wellKnownResponse = await fetcher(joinUrl(options.host, ".well-known"), {
+    signal: fetchSignal(timeoutMs, options.signal),
+  });
   if (!wellKnownResponse.ok) {
-    throw new Error(
-      `Failed to fetch well-known configuration: ${wellKnownResponse.statusText}`,
-    );
+    throw new Error(`Failed to fetch well-known configuration: ${wellKnownResponse.statusText}`);
   }
 
-  const wellKnown = await wellKnownResponse.json() as WellKnownConfiguration;
-  const authEndpoint = typeof wellKnown.auth?.issuer === "string"
-    ? wellKnown.auth.issuer
-    : undefined;
+  const wellKnown = (await wellKnownResponse.json()) as WellKnownConfiguration;
+  const authEndpoint = typeof wellKnown.auth?.issuer === "string" ? wellKnown.auth.issuer : undefined;
   if (!authEndpoint) {
-    throw new Error(
-      "Authentication endpoint not found in well-known configuration.",
-    );
+    throw new Error("Authentication endpoint not found in well-known configuration.");
   }
   const issuer = new URL(authEndpoint);
-  if (
-    issuer.username || issuer.password || issuer.search || issuer.hash
-  ) {
-    throw new Error(
-      "Authentication issuer must not contain credentials, query parameters, or a fragment.",
-    );
+  if (issuer.username || issuer.password || issuer.search || issuer.hash) {
+    throw new Error("Authentication issuer must not contain credentials, query parameters, or a fragment.");
   }
 
-  const tokenResponse = await fetcher(
-    joinUrl(issuer.href, "protocol/openid-connect/token"),
-    {
-      method: "POST",
-      redirect: "error",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: options.clientId,
-        client_secret: options.clientSecret,
-      }),
-      signal: fetchSignal(timeoutMs, options.signal),
+  const tokenResponse = await fetcher(joinUrl(issuer.href, "protocol/openid-connect/token"), {
+    method: "POST",
+    redirect: "error",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-  );
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: options.clientId,
+      client_secret: options.clientSecret,
+    }),
+    signal: fetchSignal(timeoutMs, options.signal),
+  });
   if (!tokenResponse.ok) {
-    throw new Error(
-      `Failed to obtain access token: ${tokenResponse.statusText}`,
-    );
+    throw new Error(`Failed to obtain access token: ${tokenResponse.statusText}`);
   }
 
-  const tokenData = await tokenResponse.json() as TokenResponse;
+  const tokenData = (await tokenResponse.json()) as TokenResponse;
   if (typeof tokenData.access_token !== "string" || !tokenData.access_token) {
     throw new Error("Access token not found in token response.");
   }

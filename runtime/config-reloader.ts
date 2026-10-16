@@ -1,16 +1,11 @@
-import { dirname, resolve } from "@std/path";
-import {
-  combineConfig,
-  type ConnectorConfig,
-  type EnvironmentConfig,
-  loadVolumeConfig,
-} from "./config.ts";
+import { watch } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { combineConfig, type ConnectorConfig, type EnvironmentConfig, loadVolumeConfig } from "./config.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import type { RuntimeStatus } from "./runtime-status.ts";
 
-export type ActivateConfig = (
-  config: ConnectorConfig,
-) => void | Promise<void>;
+export type ActivateConfig = (config: ConnectorConfig) => void | Promise<void>;
 
 /**
  * Loads and validates a complete candidate before handing it to the runtime.
@@ -18,13 +13,25 @@ export type ActivateConfig = (
  * runtime state untouched.
  */
 export class ConfigReloader {
+  private readonly path: string;
+  private readonly environment: EnvironmentConfig;
+  private readonly activate: ActivateConfig;
+  private readonly logger: RuntimeLogger;
+  private readonly status?: RuntimeStatus;
+
   constructor(
-    private readonly path: string,
-    private readonly environment: EnvironmentConfig,
-    private readonly activate: ActivateConfig,
-    private readonly logger: RuntimeLogger,
-    private readonly status?: RuntimeStatus,
-  ) {}
+    path: string,
+    environment: EnvironmentConfig,
+    activate: ActivateConfig,
+    logger: RuntimeLogger,
+    status?: RuntimeStatus,
+  ) {
+    this.path = path;
+    this.environment = environment;
+    this.activate = activate;
+    this.logger = logger;
+    this.status = status;
+  }
 
   async reload(): Promise<boolean> {
     try {
@@ -62,34 +69,41 @@ export async function watchConfigFile(
   debounceMs = 100,
   pollIntervalMs = 1_000,
 ): Promise<void> {
-  const watcher = Deno.watchFs(dirname(resolve(path)), { recursive: false });
-  const close = () => watcher.close();
-  signal.addEventListener("abort", close, { once: true });
-  const iterator = watcher[Symbol.asyncIterator]();
-  let nextEvent = iterator.next();
+  const watcher = watch(dirname(resolve(path)), { recursive: false });
+  const wake: Wake = {};
+  let changed = false;
+  let watchError: unknown;
+  watcher.on("change", () => {
+    changed = true;
+    wake.notify?.();
+  });
+  watcher.on("error", (error) => {
+    watchError = error;
+    wake.notify?.();
+  });
   let lastContent: string | undefined;
   try {
-    lastContent = await Deno.readTextFile(path);
+    lastContent = await readFile(path, "utf8");
   } catch {
     // Startup already validated the file; a concurrent replacement is retried.
   }
 
   try {
     while (!signal.aborted) {
-      const result = await Promise.race([
-        nextEvent.then(() => "event" as const),
-        abortableDelay(pollIntervalMs, signal).then(() => "poll" as const),
-      ]);
+      if (!changed && watchError === undefined) {
+        await abortableDelay(pollIntervalMs, signal, wake);
+      }
+      if (watchError !== undefined) throw watchError;
       if (signal.aborted) break;
-      if (result === "event") {
-        nextEvent = iterator.next();
+      if (changed) {
+        changed = false;
         await abortableDelay(debounceMs, signal);
       }
       if (signal.aborted) break;
 
       let content: string | undefined;
       try {
-        content = await Deno.readTextFile(path);
+        content = await readFile(path, "utf8");
       } catch {
         // Let the reloader produce the actionable error and retain live state.
       }
@@ -100,16 +114,13 @@ export async function watchConfigFile(
   } catch (error) {
     if (!signal.aborted) throw error;
   } finally {
-    signal.removeEventListener("abort", close);
-    try {
-      watcher.close();
-    } catch {
-      // Already closed by abort.
-    }
+    watcher.close();
   }
 }
 
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+type Wake = { notify?: () => void };
+
+function abortableDelay(ms: number, signal: AbortSignal, wake?: Wake): Promise<void> {
   return new Promise((resolveDelay) => {
     if (signal.aborted) {
       resolveDelay();
@@ -117,10 +128,12 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
     }
     const timeout = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });
+    if (wake) wake.notify = done;
 
     function done(): void {
       clearTimeout(timeout);
       signal.removeEventListener("abort", done);
+      if (wake) wake.notify = undefined;
       resolveDelay();
     }
   });
