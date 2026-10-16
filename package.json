@@ -11,7 +11,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "generate:api": "node runtime/generate-api.ts",
-    "generate:check": "pnpm run generate:api && oxfmt runtime/generated && git diff --exit-code -- runtime/generated",
+    "generate:check": "pnpm run generate:api && git diff --exit-code -- runtime/generated",
     "lint": "oxlint --deny-warnings runtime scripts integration",
     "release:check": "node scripts/sync-release-artifacts.ts --check",
     "release:version": "node scripts/changeset.ts version && node scripts/sync-release-artifacts.ts",

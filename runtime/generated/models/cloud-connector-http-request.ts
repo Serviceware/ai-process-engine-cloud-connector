@@ -1,11 +1,11 @@
-import type { CloudConnectorHttpMethod } from "./cloud-connector-http-method.ts";
+import type { CloudConnectorHttpMethod } from './cloud-connector-http-method.ts';
 
 export type CloudConnectorHttpRequest = {
-  method: CloudConnectorHttpMethod;
-  url: string;
-  headers?: {
-    [key: string]: string[];
+    method: CloudConnectorHttpMethod;
+    url: string;
+    headers?: {
+      [key: string]: (string)[];
+    };
+    body?: (string) | (null);
+    timeoutSeconds?: number;
   };
-  body?: string | null;
-  timeoutSeconds?: number;
-};

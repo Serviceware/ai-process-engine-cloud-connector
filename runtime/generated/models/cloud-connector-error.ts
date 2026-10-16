@@ -1,4 +1,4 @@
 export type CloudConnectorError = {
-  code: string;
-  message: string;
-};
+    code: string;
+    message: string;
+  };
