@@ -47,5 +47,8 @@ does not restrict network or environment access; the outbound URL policy is the
 network boundary. Keep the granted read paths minimal.
 
 Add dependencies only when the standard library or a small local implementation
-is insufficient. Pin dependencies in `package-lock.json` and preserve frozen
-resolution (`npm ci`) in CI and the container build.
+is insufficient. Pin dependencies in `pnpm-lock.yaml` and preserve frozen
+resolution (`pnpm install --frozen-lockfile`) in CI and the container build.
+`pnpm-workspace.yaml` sets `minimumReleaseAge` to seven days, so pnpm rejects
+package versions published more recently; do not lower it or add exclusions
+without a reviewed reason.

@@ -221,17 +221,6 @@ async function versionRelease(): Promise<void> {
     packageJson.version = version;
     await writeJson("package.json", packageJson);
 
-    const packageLock = await readJson("package-lock.json");
-    const lockedRoot = (packageLock.packages as Record<string, JsonObject>)?.[
-      ""
-    ];
-    if (!lockedRoot) {
-      throw new Error("package-lock.json must contain the root package");
-    }
-    packageLock.version = version;
-    lockedRoot.version = version;
-    await writeJson("package-lock.json", packageLock);
-
     const changelogPath = "CHANGELOG.md";
     const changelog = await readFile(changelogPath, "utf8");
     const releaseIndex = changelog.indexOf("\n## ");

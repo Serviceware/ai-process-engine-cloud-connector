@@ -7,7 +7,7 @@ and use an imperative Conventional Commit-style subject such as `docs:`, `fix:`,
 Every pull request must add a Changeset:
 
 ```bash
-npm run changeset
+pnpm run changeset
 ```
 
 Use `patch`, `minor`, or `major` for a user-visible release change. Use an empty
@@ -15,7 +15,7 @@ Changeset for documentation, tests, or internal tooling that should not change
 the released version:
 
 ```bash
-npm run changeset -- --empty
+pnpm run changeset --empty
 ```
 
 Do not edit the package version, changelog release heading, Git tags, or

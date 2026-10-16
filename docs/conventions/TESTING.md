@@ -23,7 +23,7 @@ frames, forwarding policy, reconnects, hot reload, probes, signals, and exit
 codes. Keep fine-grained cases in unit tests.
 
 ```bash
-npm run test:integration
+pnpm run test:integration
 ```
 
 The connector binds its fixed probe port `8080`, so the integration tests run
@@ -37,7 +37,7 @@ Run the smallest relevant checks while developing. Before completing a change,
 run:
 
 ```bash
-npm run ci
+pnpm run ci
 ```
 
 This checks formatting, linting, types, tests, generated API models, and release

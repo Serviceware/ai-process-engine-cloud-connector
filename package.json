@@ -6,12 +6,12 @@
   "scripts": {
     "changeset": "node scripts/changeset.ts add",
     "changeset:status": "node scripts/changeset.ts status",
-    "ci": "npm run fmt:check && npm run lint && npm run typecheck && npm run test && npm run test:integration && npm run generate:check && npm run release:check",
+    "ci": "pnpm run fmt:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run test:integration && pnpm run generate:check && pnpm run release:check",
     "dev": "node --watch runtime/main.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "generate:api": "node runtime/generate-api.ts",
-    "generate:check": "npm run generate:api && oxfmt runtime/generated && git diff --exit-code -- runtime/generated",
+    "generate:check": "pnpm run generate:api && oxfmt runtime/generated && git diff --exit-code -- runtime/generated",
     "lint": "oxlint --deny-warnings runtime scripts integration",
     "release:check": "node scripts/sync-release-artifacts.ts --check",
     "release:version": "node scripts/changeset.ts version && node scripts/sync-release-artifacts.ts",
@@ -27,18 +27,19 @@
   "devDependencies": {
     "@goast/core": "0.5.3",
     "@goast/typescript": "0.6.2",
-    "@types/node": "24.19.2",
+    "@types/node": "24.19.1",
     "@types/ws": "8.18.2",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "5.0.3",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "oxfmt": "0.73.0",
-    "oxlint": "1.88.0",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.5",
+    "vitest": "5.0.3",
     "ws": "8.22.0"
   },
   "engines": {
     "node": ">=24.21.0 <25"
-  }
+  },
+  "packageManager": "pnpm@11.7.0+sha512.19cc852c120c7125760f2443ee6be0ca5b40f9f50598de1a09a1f177503e010e57c23c77646e01e761de59bf874fb22a3398c33ab9691fc13eb946b6f0f4d620"
 }

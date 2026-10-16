@@ -3,7 +3,7 @@
 Run all local checks with:
 
 ```bash
-npm run ci
+pnpm run ci
 ```
 
 This checks formatting, linting, types, unit and integration tests, and

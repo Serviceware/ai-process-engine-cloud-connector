@@ -40,10 +40,11 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
 
       - name: Require the main branch
         env:
@@ -52,7 +53,7 @@ jobs:
           [[ "${RELEASE_REF}" == "refs/heads/main" ]]
 
       - name: Prepare version and release artifacts
-        run: npm run release:version
+        run: pnpm run release:version
 
       - name: Create release pull request or publish current version
         id: result

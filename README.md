@@ -540,11 +540,13 @@ by the current platform protocol.
 
 Install the Node.js version from `.node-version`, for example with
 [fnm](https://github.com/Schniz/fnm) or [nvm](https://github.com/nvm-sh/nvm),
-then install the locked dependencies and run the complete local check suite:
+then let Corepack provide the pinned pnpm, install the locked dependencies, and
+run the complete local check suite:
 
 ```bash
-npm ci
-npm run ci
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run ci
 ```
 
 See [Contributing](CONTRIBUTING.md) for the contribution workflow and

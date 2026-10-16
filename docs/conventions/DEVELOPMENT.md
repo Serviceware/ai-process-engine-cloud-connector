@@ -4,8 +4,10 @@
 
 Node.js is the repository's only JavaScript and TypeScript runtime. Use the
 version from `.node-version`, keep scripts in the root `package.json`, and
-commit `package-lock.json` when dependencies change. Install with `npm ci`. Do
-not add a second package manager or task runner.
+use pnpm through Corepack (`corepack enable`) at the version pinned in the
+`packageManager` field. Commit `pnpm-lock.yaml` when dependencies change and
+install with `pnpm install --frozen-lockfile`. Do not add a second package
+manager or task runner.
 
 Node.js runs the TypeScript sources directly through type stripping; there is
 no build step. Use only erasable TypeScript syntax (`erasableSyntaxOnly`): no
@@ -18,11 +20,11 @@ oxlint for linting, and Vitest for tests.
 Common commands:
 
 ```bash
-npm run fmt
-npm run lint
-npm run typecheck
-npm run test
-npm run ci
+pnpm run fmt
+pnpm run lint
+pnpm run typecheck
+pnpm run test
+pnpm run ci
 ```
 
 ## Implementation style
@@ -40,10 +42,10 @@ instead of introducing local formatting exceptions.
 
 ## Generated artifacts
 
-Change `openapi/api.yml`, then run `npm run generate:api` to update protocol
+Change `openapi/api.yml`, then run `pnpm run generate:api` to update protocol
 models. Coordinate every change to this shared protocol with the Serviceware AI
 Process Engine backend before merging it. Never edit `runtime/generated/`
-directly. Run `npm run generate:check` before completion whenever the protocol
+directly. Run `pnpm run generate:check` before completion whenever the protocol
 or generation path changes.
 
 The release version in `package.json`, release headings in `CHANGELOG.md`, and
