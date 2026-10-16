@@ -551,12 +551,28 @@ by the current platform protocol.
 
 ## Development
 
-Install the Node.js version from `.node-version`, for example with
-[fnm](https://github.com/Schniz/fnm) or [nvm](https://github.com/nvm-sh/nvm),
-then let Corepack provide the pinned pnpm, install the locked dependencies, and
-run the complete local check suite:
+Install [Fast Node Manager (`fnm`)](https://github.com/Schniz/fnm) if it is not
+already available. It reads `.node-version` on Windows, macOS, and Linux:
 
 ```bash
+# macOS, Linux, or WSL
+curl -fsSL https://fnm.vercel.app/install | bash
+```
+
+On Windows, install it with winget in PowerShell instead:
+
+```powershell
+winget install Schniz.fnm
+```
+
+Set up your shell as described in the
+[fnm shell setup](https://github.com/Schniz/fnm#shell-setup), open a new shell,
+then install and select the Node.js version from `.node-version`. Corepack
+provides the pnpm version pinned in `package.json`:
+
+```bash
+fnm install
+fnm use
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run ci

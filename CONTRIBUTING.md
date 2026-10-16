@@ -12,10 +12,15 @@ Thank you for improving the Serviceware AI Process Engine - Cloud Connector.
 5. Run the repository checks.
 6. Open a pull request with a short explanation of the change and its impact.
 
-Use the Node.js version from `.node-version`. Corepack installs the pnpm
-version pinned in `package.json`:
+Use the Node.js version from `.node-version`.
+[fnm](https://github.com/Schniz/fnm) reads it on Windows, macOS, and Linux; nvm
+reads only `.nvmrc`, and nvm for Windows reads neither. See
+[Development](README.md#development) for installing fnm. Corepack installs the
+pnpm version pinned in `package.json`:
 
 ```bash
+fnm install
+fnm use
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run ci
