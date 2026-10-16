@@ -18,7 +18,7 @@ export type ServeOptions = {
 };
 
 // The Fetch API rejects these methods, so they never reach the handler.
-const forbiddenMethods = new Set(["CONNECT", "TRACE", "TRACK"]);
+const forbiddenMethods = new Set(["CONNECT", "TRACE"]);
 
 /** Aborting `signal` closes the server and its open connections. */
 export async function serve(

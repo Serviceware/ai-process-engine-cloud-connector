@@ -469,9 +469,15 @@ add another `--env NAME` option to `docker run`, for example
 `--env CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`.
 
 Outbound connections honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and
-`NO_PROXY` variables. To trust an internal certificate authority, place its PEM
-bundle in the configuration directory and set `NODE_EXTRA_CA_CERTS` to its
-container path, for example `/config/internal-ca.pem`.
+`NO_PROXY` variables. `HTTP_PROXY` also applies to HTTPS targets when
+`HTTPS_PROXY` is not set. `NO_PROXY` takes host names, domain suffixes, IP
+addresses, and ports, but not CIDR ranges. To trust an internal certificate
+authority, place its PEM bundle in the configuration directory and set
+`NODE_EXTRA_CA_CERTS` to its container path, for example
+`/config/internal-ca.pem`.
+
+Targets on ports that the Fetch standard blocks, such as `25`, `6000`, or
+`10080`, cannot be forwarded and fail with `TARGET_REQUEST_ERROR`.
 
 ### Volume
 
@@ -483,9 +489,10 @@ The connector uses one configuration volume:
 
 Mount the directory, not only the file, so atomic file replacements and
 projected-volume updates can be detected. The container runs as the non-root
-user `node` (uid 1000), which must be able to read the mounted files. The connector listens on port `8080`
-for `/health` and `/ready`. Publishing that port is useful for host-based
-monitoring but is not required for the outbound platform connection.
+user `node` (uid 1000), which must be able to read the mounted files. The
+connector listens on port `8080` for `/health` and `/ready`. Publishing that
+port is useful for host-based monitoring but is not required for the outbound
+platform connection.
 
 ### Docker Compose
 

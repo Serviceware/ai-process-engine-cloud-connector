@@ -42,3 +42,15 @@ test("describeError names cause codes without their addresses", () => {
   expect(describeError(new Error("Boom"))).toStrictEqual("Boom");
   expect(describeError("plain failure")).toStrictEqual("plain failure");
 });
+
+test("describeError redacts URLs that can carry credentials", () => {
+  expect(
+    describeError(
+      new TypeError(
+        "Request cannot be constructed from a URL that includes credentials: https://user:secret@idp.internal/token",
+      ),
+    ),
+  ).toStrictEqual(
+    "Request cannot be constructed from a URL that includes credentials: <url>",
+  );
+});

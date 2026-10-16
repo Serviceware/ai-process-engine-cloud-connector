@@ -11,13 +11,17 @@ export class RuntimeError extends Error {
 }
 
 const maxCauseDepth = 5;
+const urlPattern = /[a-z][a-z\d+.-]*:\/\/\S+/gi;
 
 /**
  * Node's fetch reports "fetch failed" and keeps the reason in `cause`. Error
- * codes such as `ECONNREFUSED` name it without revealing internal addresses.
+ * codes such as `ECONNREFUSED` name it without revealing internal addresses;
+ * URLs in the message are redacted because they can carry credentials.
  */
 export function describeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).replace(urlPattern, "<url>");
   const codes = [...new Set(errorCodes(error, maxCauseDepth))];
   return codes.length === 0 ? message : `${message} (${codes.join(", ")})`;
 }

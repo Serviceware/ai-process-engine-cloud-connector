@@ -30,13 +30,16 @@ export class StubConnection {
   readonly purpose: string;
   readonly authorization: string | null;
   private readonly socket: WebSocket;
+  private readonly transport: Duplex;
 
   constructor(
     socket: WebSocket,
+    transport: Duplex,
     purpose: string,
     authorization: string | null,
   ) {
     this.socket = socket;
+    this.transport = transport;
     this.purpose = purpose;
     this.authorization = authorization;
     this.closed = new Promise((resolve) => {
@@ -75,6 +78,15 @@ export class StubConnection {
 
   close(): void {
     this.socket.close();
+  }
+
+  /** Stops reading, so the connector's close frame is never answered. */
+  stopReading(): void {
+    this.transport.pause();
+  }
+
+  terminate(): void {
+    this.socket.terminate();
   }
 }
 
@@ -124,9 +136,7 @@ export class StubAiProcessEngine {
   }
 
   async close(): Promise<void> {
-    for (const connection of this.connections) {
-      if (connection.isOpen) connection.close();
-    }
+    for (const connection of this.connections) connection.terminate();
     await Promise.all(this.connections.map((connection) => connection.closed));
     this.webSockets.close();
     const closed = new Promise((resolve) => this.server.once("close", resolve));
@@ -199,6 +209,7 @@ export class StubAiProcessEngine {
       this.connections.push(
         new StubConnection(
           webSocket,
+          socket,
           decodeURIComponent(connect[1]),
           authorization,
         ),

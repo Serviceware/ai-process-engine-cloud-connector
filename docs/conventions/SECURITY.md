@@ -45,8 +45,8 @@ mounted configuration (`/config/`). File writes, child processes, worker
 threads, native addons, and WASI stay denied. The Node.js 24 permission model
 does not restrict network or environment access; the outbound URL policy is the
 network boundary; it is checked before a request reaches the proxy
-configured by `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Keep the granted read
-paths minimal.
+configured by `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Keep the granted
+read paths minimal.
 
 Add dependencies only when the standard library or a small local implementation
 is insufficient. Pin dependencies in `pnpm-lock.yaml` and preserve frozen

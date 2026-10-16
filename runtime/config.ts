@@ -222,27 +222,27 @@ export async function loadVolumeConfig(path: string): Promise<VolumeConfig> {
 }
 
 /**
- * Keeps the YAML 1.1 integer forms that earlier releases accepted: digit
- * separators, `0b` binary, leading-zero octal, and sexagesimal values.
+ * Accepts the YAML 1.1 integer forms of the js-yaml based parser: digit
+ * separators, `0b` binary, and leading-zero octal.
  */
 const yaml11Integer: ScalarTag = {
   tag: "tag:yaml.org,2002:int",
   default: true,
-  test: /^[-+]?(?:0b[01_]+|0x[0-9a-fA-F_]+|0[0-7_]+|[1-9][0-9_]*(?::[0-5]?[0-9])+|[1-9][0-9]*_[0-9_]*)$/,
+  test: /^[-+]?(?:0b[01_]*[01]|0x[0-9a-fA-F_]*[0-9a-fA-F]|0[0-7_]*[0-7]|[1-9][0-9_]*_[0-9_]*[0-9])$/,
   resolve: resolveYaml11Integer,
+};
+
+/** Leading-zero decimals and `0o` octal are YAML 1.2 integers but js-yaml strings. */
+const yaml11String: ScalarTag = {
+  tag: "tag:yaml.org,2002:str",
+  default: true,
+  test: /^[-+]?(?:0[0-9_]*[89][0-9_]*|0o[0-7_]+)$/,
+  resolve: (source) => source,
 };
 
 function resolveYaml11Integer(source: string): number {
   const sign = source.startsWith("-") ? -1 : 1;
   const digits = source.replace(/^[-+]/, "").replaceAll("_", "");
-  if (digits.includes(":")) {
-    return (
-      sign *
-      digits
-        .split(":")
-        .reduce((total, part) => total * 60 + Number.parseInt(part, 10), 0)
-    );
-  }
   if (digits.startsWith("0b"))
     return sign * Number.parseInt(digits.slice(2), 2);
   if (digits.startsWith("0x")) {
@@ -262,7 +262,7 @@ export function parseVolumeConfig(
   try {
     value = parseYaml(content, {
       merge: true,
-      customTags: (tags) => [yaml11Integer, ...tags],
+      customTags: (tags) => [yaml11Integer, yaml11String, ...tags],
     });
   } catch (error) {
     throw new RuntimeError(
@@ -712,6 +712,9 @@ function requireAbsoluteUrl(
     throw new Error(
       `${name} must use one of these protocols: ${allowedProtocols.join(", ")}`,
     );
+  }
+  if (url.username || url.password) {
+    throw new Error(`${name} must not contain credentials`);
   }
   return url.toString();
 }

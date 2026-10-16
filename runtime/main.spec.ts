@@ -126,10 +126,14 @@ test("superviseHttpServer rebinds after a server error and a later close", async
       logger: silentLogger,
     });
   const initial = await bind();
-  let rebound: Server | undefined;
+  const rebound: Server[] = [];
   const supervisor = superviseHttpServer(
     initial,
-    async () => (rebound = await bind()),
+    async () => {
+      const server = await bind();
+      rebound.push(server);
+      return server;
+    },
     abortController.signal,
     silentLogger,
   );
@@ -137,7 +141,11 @@ test("superviseHttpServer rebinds after a server error and a later close", async
   try {
     initial.emit("error", new Error("accept EMFILE"));
     initial.close();
-    await vi.waitFor(() => expect(rebound?.listening).toBeTruthy(), {
+    await vi.waitFor(() => expect(rebound[0]?.listening).toBeTruthy(), {
+      timeout: 5_000,
+    });
+    rebound[0].close();
+    await vi.waitFor(() => expect(rebound[1]?.listening).toBeTruthy(), {
       timeout: 5_000,
     });
   } finally {

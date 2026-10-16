@@ -171,7 +171,8 @@ test("YamlForwardingExecutor denies unmatched URLs and explicit empty methods", 
 });
 
 test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials tokens", async () => {
-  const calls: Request[] = [];
+  const tokenBodies: string[] = [];
+  const targetAuthorizations: (string | null)[] = [];
   const executor = await createYamlForwardingExecutor({
     config: configFor(`
 - target: ^https://internal[.]example/.*$
@@ -188,16 +189,11 @@ test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials tokens
     logger: silentLogger,
     nextFetch: (async (input, init) => {
       const request = new Request(input, init);
-      calls.push(request);
       if (request.url === "https://auth.example/token") {
-        expect(await request.clone().text()).toStrictEqual(
-          "grant_type=client_credentials&client_id=connector&client_secret=secret&scope=inventory.read",
-        );
+        tokenBodies.push(await request.text());
         return Response.json({ access_token: "oauth-token", expires_in: 60 });
       }
-      expect(request.headers.get("authorization")).toStrictEqual(
-        "Bearer oauth-token",
-      );
+      targetAuthorizations.push(request.headers.get("authorization"));
       return new Response("ok");
     }) as Fetcher,
   });
@@ -208,9 +204,13 @@ test("YamlForwardingExecutor obtains and caches OAuth2 client-credentials tokens
   };
   await executor.execute(frame);
   await executor.execute(frame);
-  expect(
-    calls.filter((call) => call.url === "https://auth.example/token").length,
-  ).toStrictEqual(1);
+  expect(tokenBodies).toStrictEqual([
+    "grant_type=client_credentials&client_id=connector&client_secret=secret&scope=inventory.read",
+  ]);
+  expect(targetAuthorizations).toStrictEqual([
+    "Bearer oauth-token",
+    "Bearer oauth-token",
+  ]);
 });
 
 test("YamlForwardingExecutor deduplicates OAuth2 fetches and shares the cache across reloads", async () => {
@@ -629,6 +629,7 @@ test("YamlForwardingExecutor lets fetch derive content-length and drops expect",
 });
 
 test("YamlForwardingExecutor reports the network reason of failed requests", async () => {
+  const warnings: unknown[][] = [];
   const closed = createServer();
   closed.listen(0, "127.0.0.1");
   await once(closed, "listening");
@@ -639,7 +640,12 @@ test("YamlForwardingExecutor reports the network reason of failed requests", asy
     config: configFor("- target: ^http://127[.]0[.]0[.]1:[0-9]+/.*$"),
     configPath: "/config/cloud-connector.yml",
     env: {},
-    logger: silentLogger,
+    logger: createLogger("warn", {
+      debug: () => undefined,
+      error: () => undefined,
+      info: () => undefined,
+      warn: (...data) => warnings.push(data),
+    }),
   });
 
   const failure = executor.execute({
@@ -652,4 +658,49 @@ test("YamlForwardingExecutor reports the network reason of failed requests", asy
     code: "TARGET_REQUEST_ERROR",
     message: "Forwarding request failed: fetch failed (ECONNREFUSED)",
   });
+  expect(warnings.flat()).toContainEqual(
+    expect.objectContaining({ message: "fetch failed" }),
+  );
+});
+
+test("YamlForwardingExecutor names the network reason of failed OAuth2 token requests", async () => {
+  const warnings: unknown[][] = [];
+  const refused = Object.assign(
+    new Error("connect ECONNREFUSED 10.0.0.1:443"),
+    {
+      code: "ECONNREFUSED",
+    },
+  );
+  const fetchError = new TypeError("fetch failed", { cause: refused });
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: secret
+`),
+    configPath: "test.yml",
+    logger: createLogger("warn", {
+      debug: () => undefined,
+      error: () => undefined,
+      info: () => undefined,
+      warn: (...data) => warnings.push(data),
+    }),
+    nextFetch: (() => Promise.reject(fetchError)) as Fetcher,
+  });
+
+  await expect(
+    executor.execute({
+      type: "request",
+      requestId: "request-1",
+      request: { method: "GET", url: "https://internal.example/items" },
+    }),
+  ).rejects.toMatchObject({
+    code: "TARGET_REQUEST_ERROR",
+    message: "OAuth2 token request failed: fetch failed (ECONNREFUSED)",
+  });
+  expect(warnings.flat()).toContain(fetchError);
 });

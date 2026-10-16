@@ -145,6 +145,9 @@ test("serve answers request lines the Fetch API cannot represent", async () => {
     expect(await statusLine("TRACE /health HTTP/1.1")).toStrictEqual(
       "HTTP/1.1 405 Method Not Allowed",
     );
+    expect(await statusLine("TRACK /health HTTP/1.1")).toStrictEqual(
+      "HTTP/1.1 400 Bad Request",
+    );
     expect(await statusLine("CONNECT localhost:1 HTTP/1.1")).toStrictEqual(
       "HTTP/1.1 405 Method Not Allowed",
     );

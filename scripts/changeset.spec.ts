@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { bumpVersion, parseChangeset } from "./changeset.ts";
 
@@ -26,4 +29,18 @@ test("bumps semantic versions", () => {
   expect(() => bumpVersion("v1.0.0", "patch")).toThrow(
     "Version must use MAJOR.MINOR.PATCH",
   );
+});
+
+test("changeset add fails clearly when standard input is closed", async () => {
+  const child = spawn(process.execPath, ["scripts/changeset.ts", "add"], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
+
+  const [code] = await once(child, "close");
+
+  expect(code).toStrictEqual(1);
+  expect(stderr).toContain("Standard input closed before answering");
 });

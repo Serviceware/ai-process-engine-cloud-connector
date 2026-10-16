@@ -1,4 +1,9 @@
 import { once } from "node:events";
+import {
+  createServer as createHttpServer,
+  request as httpRequest,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
 import { expect, test } from "vitest";
 import { ConnectorProcess } from "./connector-process.ts";
@@ -19,6 +24,7 @@ type Fixture = {
 type FixtureOptions = {
   config?: (target: StubTarget) => string;
   target?: TargetHandler;
+  env?: Record<string, string>;
   waitUntilReady?: boolean;
 };
 
@@ -81,6 +87,7 @@ async function withConnector(
           CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO: "0",
           CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS: "5",
           TARGET_API_TOKEN: targetToken,
+          ...options.env,
         },
         config: (options.config ?? connectorConfig)(target),
       });
@@ -545,3 +552,56 @@ async function waitForReload(
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// Windows cannot deliver SIGTERM to a child process.
+test.skipIf(process.platform === "win32")(
+  "exits on SIGTERM when the engine never answers the close frame",
+  async () => {
+    await withConnector({}, async ({ engine, connector }) => {
+      const connection = await engine.connection(0);
+      connection.stopReading();
+
+      const { code } = await connector.stop("SIGTERM");
+
+      expect(code).toStrictEqual(0);
+    });
+  },
+);
+
+test("sends control-plane requests through HTTP_PROXY", async () => {
+  const proxied: string[] = [];
+  const proxy = createHttpServer((request, response) => {
+    proxied.push(`${request.method} ${request.url}`);
+    const upstream = httpRequest(
+      request.url ?? "",
+      { method: request.method, headers: request.headers },
+      (reply) => {
+        response.writeHead(reply.statusCode ?? 502, reply.headers);
+        reply.pipe(response);
+      },
+    );
+    request.pipe(upstream);
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  try {
+    const { port } = proxy.address() as AddressInfo;
+    await withConnector(
+      {
+        env: { HTTP_PROXY: `http://127.0.0.1:${port}` },
+        waitUntilReady: false,
+      },
+      async ({ engine }) => {
+        await waitFor(
+          () => engine.tokenRequests.length > 0 || undefined,
+          "token request through the proxy",
+        );
+
+        expect(proxied).toContain(`GET ${engine.url}/.well-known`);
+      },
+    );
+  } finally {
+    proxy.closeAllConnections();
+    proxy.close();
+  }
+});

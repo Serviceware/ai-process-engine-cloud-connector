@@ -296,7 +296,6 @@ test("parseVolumeConfig keeps YAML 1.1 integer forms", () => {
     ["010", 8],
     ["0b11", 3],
     ["0x1_F", 31],
-    ["1:30", 90],
     ["30", 30],
     ["0x1E", 30],
   ] as const) {
@@ -313,4 +312,46 @@ forwarding:
       },
     );
   }
+});
+
+test("parseVolumeConfig keeps values js-yaml read as strings", () => {
+  const config = parseVolumeConfig(`
+connection: {}
+forwarding:
+  - target: ^https://internal[.]example(?:/.*)?$
+    request:
+      headers:
+        set:
+          x-window: 12:30
+          x-start: 10:00:15
+          x-suffix: 1_
+          x-binary: 0b_
+          x-leading-zero: 08
+          x-octal: 0o12
+`);
+
+  expect(config.forwarding[0].request?.headers?.set).toStrictEqual({
+    "x-window": "12:30",
+    "x-start": "10:00:15",
+    "x-suffix": "1_",
+    "x-binary": "0b_",
+    "x-leading-zero": "08",
+    "x-octal": "0o12",
+  });
+});
+
+test("parseVolumeConfig rejects OAuth2 issuers with credentials", () => {
+  expect(() =>
+    parseVolumeConfig(`
+connection: {}
+forwarding:
+  - target: ^https://internal[.]example(?:/.*)?$
+    request:
+      auth:
+        type: oauth2
+        issuer: https://user:secret@idp.example/token
+        clientId: connector
+        clientSecret: secret
+`),
+  ).toThrow("forwarding[0].request.auth.issuer must not contain credentials");
 });
