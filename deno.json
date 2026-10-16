@@ -13,19 +13,20 @@
     "check": "deno task typecheck",
     "changeset": "deno run --allow-read --allow-write scripts/changeset.ts add",
     "changeset:status": "deno run --allow-read --allow-run=git scripts/changeset.ts status",
-    "ci": "deno task fmt:check && deno task lint && deno task typecheck && deno task test && deno task generate:check && deno task release:check",
+    "ci": "deno task fmt:check && deno task lint && deno task typecheck && deno task test && deno task test:integration && deno task generate:check && deno task release:check",
     "coverage": "deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' --lcov --output=coverage/lcov.info coverage/raw && deno coverage --exclude='\\.spec\\.ts$' --exclude='/generated/' --exclude='/generate-api\\.ts$' coverage/raw",
     "dev": "deno task --cwd runtime dev",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "generate:api": "deno task --cwd runtime generate:api",
     "generate:check": "deno task generate:api && deno fmt runtime/generated && git diff --exit-code -- runtime/generated",
-    "lint": "deno lint runtime scripts",
+    "lint": "deno lint runtime scripts integration",
     "release:check": "deno run --allow-read scripts/sync-release-artifacts.ts --check",
     "release:version": "deno run --allow-read --allow-write scripts/changeset.ts version && deno run --allow-read --allow-write scripts/sync-release-artifacts.ts",
     "start": "deno task --cwd runtime start",
     "test": "deno test --frozen --allow-env --allow-read --allow-write runtime/*.spec.ts scripts/*.spec.ts",
+    "test:integration": "deno test --frozen --allow-env --allow-net --allow-read --allow-write --allow-run=deno integration/*.spec.ts",
     "test:coverage": "deno task test --coverage=coverage/raw && deno task coverage",
-    "typecheck": "deno check --frozen runtime scripts"
+    "typecheck": "deno check --frozen runtime scripts integration"
   }
 }

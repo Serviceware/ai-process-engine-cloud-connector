@@ -87,6 +87,9 @@ jobs:
       - name: Create source-only coverage report
         run: deno task coverage
 
+      - name: Run integration tests
+        run: deno task test:integration --junit-path=integration-test-results.xml
+
       - name: Upload test results and coverage
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -94,6 +97,7 @@ jobs:
           name: test-results-${{ github.run_attempt }}
           path: |
             test-results.xml
+            integration-test-results.xml
             coverage/lcov.info
           if-no-files-found: warn
           retention-days: 14

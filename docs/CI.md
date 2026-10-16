@@ -6,7 +6,8 @@ Run all local checks with:
 deno task ci
 ```
 
-This checks formatting, linting, types, tests, and generated protocol files.
+This checks formatting, linting, types, unit and integration tests, and
+generated protocol files.
 
 GitHub Actions runs the same checks for pull requests and also verifies the
 container image. It also requires every non-release pull request to contain a
