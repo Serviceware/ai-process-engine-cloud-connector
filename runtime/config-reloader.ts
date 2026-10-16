@@ -123,7 +123,6 @@ export async function watchConfigFile(
   }
 }
 
-/** Lets a watcher event end the current poll delay early. */
 type Wake = { notify?: () => void };
 
 function abortableDelay(

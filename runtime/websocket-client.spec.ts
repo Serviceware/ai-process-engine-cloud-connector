@@ -64,8 +64,8 @@ test("computeBackoffDelay keeps jittered delays within [cap*(1-ratio), cap]", ()
   for (const rng of [() => 0, () => 0.5, () => 0.999]) {
     const value = computeBackoffDelay(3, initial, max, ratio, rng);
     const cap = 4_000;
-    expect(value >= cap * (1 - ratio)).toBeTruthy();
-    expect(value <= cap).toBeTruthy();
+    expect(value).toBeGreaterThanOrEqual(cap * (1 - ratio));
+    expect(value).toBeLessThanOrEqual(cap);
   }
 
   // rng() === 0 yields the floor; full jitter ratio yields [0, cap].
@@ -229,8 +229,8 @@ test("runCloudWebSocketClient escalates backoff on a flapping peer (anti-flap)",
     await waitUntil(() => status.reconnectAttempt >= 3, 400);
     abortController.abort();
     await client;
-    expect(status.reconnectAttempt >= 3).toBeTruthy();
-    expect(FakeWebSocket.instances.length >= 3).toBeTruthy();
+    expect(status.reconnectAttempt).toBeGreaterThanOrEqual(3);
+    expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(3);
   });
 });
 

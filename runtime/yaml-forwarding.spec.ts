@@ -492,7 +492,10 @@ test("maintained templates contain valid complete connector YAML", async () => {
     ),
   ]) {
     const yaml = await readFile(path, "utf8");
-    expect(validateSchema(parseYaml(yaml))).toBeTruthy();
+    expect(
+      validateSchema(parseYaml(yaml)),
+      `Schema rejected ${path}: ${JSON.stringify(validateSchema.errors)}`,
+    ).toBeTruthy();
     const config = combineConfig(environment, await loadVolumeConfig(path));
     await createYamlForwardingExecutor({
       config,

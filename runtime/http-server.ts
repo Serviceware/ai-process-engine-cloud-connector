@@ -17,11 +17,7 @@ export type ServeOptions = {
   logger: RuntimeLogger;
 };
 
-/**
- * Serves a Fetch API handler with `node:http`. Resolves once the port is
- * bound and rejects when it cannot be bound. Aborting the signal closes the
- * server and its open connections.
- */
+/** Aborting `signal` closes the server and its open connections. */
 export async function serve(
   handler: FetchHandler,
   options: ServeOptions,
