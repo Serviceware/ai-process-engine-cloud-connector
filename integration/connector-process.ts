@@ -3,6 +3,7 @@ import { waitFor } from "./wait.ts";
 
 const repositoryRoot = fromFileUrl(new URL("..", import.meta.url));
 const probeUrl = "http://127.0.0.1:8080";
+const readinessTimeoutMs = 20_000;
 
 export type ConnectorExit = {
   code: number;
@@ -14,10 +15,6 @@ export type ConnectorProcessOptions = {
   config: string;
 };
 
-/**
- * Runs `runtime/main.ts` as a separate process with the production
- * permissions, a temporary YAML file, and an isolated environment.
- */
 export class ConnectorProcess {
   readonly configPath: string;
   readonly exited: Promise<ConnectorExit>;
@@ -82,7 +79,7 @@ export class ConnectorProcess {
     return { status: response.status, body: await response.json() };
   }
 
-  async waitUntilReady(timeoutMs = 20_000): Promise<void> {
+  async waitUntilReady(): Promise<void> {
     await waitFor(
       async () => {
         if (!this.running) {
@@ -96,7 +93,7 @@ export class ConnectorProcess {
         }
       },
       "Cloud Connector readiness",
-      timeoutMs,
+      readinessTimeoutMs,
     );
   }
 

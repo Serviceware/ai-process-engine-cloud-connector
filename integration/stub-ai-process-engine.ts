@@ -17,10 +17,6 @@ export type TokenRequest = {
 
 type ReceivedFrame = Record<string, unknown> & { type: string };
 
-/**
- * One Cloud Connector WebSocket accepted by the stub. Sends request frames as
- * Serviceware AI Process Engine would and records every frame it receives.
- */
 export class StubConnection {
   readonly frames: ReceivedFrame[] = [];
   readonly closed: Promise<void>;
@@ -66,13 +62,8 @@ export class StubConnection {
   waitForFrame(
     predicate: (frame: ReceivedFrame) => boolean,
     description: string,
-    timeoutMs?: number,
   ): Promise<ReceivedFrame> {
-    return waitFor(
-      () => this.frames.find(predicate),
-      description,
-      timeoutMs,
-    );
+    return waitFor(() => this.frames.find(predicate), description);
   }
 
   close(): void {
@@ -80,11 +71,6 @@ export class StubConnection {
   }
 }
 
-/**
- * Minimal Serviceware AI Process Engine control plane: `.well-known`
- * discovery, the client-credentials token endpoint, and the connector
- * WebSocket endpoint.
- */
 export class StubAiProcessEngine {
   readonly tokenRequests: TokenRequest[] = [];
   readonly connections: StubConnection[] = [];
@@ -112,11 +98,10 @@ export class StubAiProcessEngine {
     return `${this.url}/auth/realms/stub`;
   }
 
-  connection(index: number, timeoutMs?: number): Promise<StubConnection> {
+  connection(index: number): Promise<StubConnection> {
     return waitFor(
       () => this.connections[index],
       `Cloud Connector WebSocket connection #${index + 1}`,
-      timeoutMs,
     );
   }
 

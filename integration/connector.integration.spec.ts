@@ -261,6 +261,13 @@ Deno.test("ignores invalid frames and keeps serving", async () => {
       url: `${target.url}/api/tickets`,
     });
     assertEquals(frame.response?.statusCode, 200);
+    assertEquals(
+      connection.frames.filter((received) =>
+        received.requestId === "broken" || received.requestId === "x"
+      ),
+      [],
+    );
+    assertEquals(target.requests.length, 1);
     assert(connection.isOpen);
     assertEquals(engine.connections.length, 1);
   });
@@ -350,13 +357,16 @@ Deno.test({
 
 Deno.test("exits with EX_CONFIG for an invalid configuration", async () => {
   await withConnector({
-    config: () => "forwarding: []\n",
+    config: () => "connection:\n  purpose: integration\nforwarding: []\n",
     waitUntilReady: false,
   }, async ({ engine, connector }) => {
     const { code, output } = await connector.exited;
 
     assertEquals(code, 78);
-    assertMatch(output, /FATAL: invalid configuration/);
+    assertMatch(
+      output,
+      /FATAL: invalid configuration: .*forwarding must be a non-empty array of rules/,
+    );
     assertEquals(engine.tokenRequests.length, 0);
   });
 });

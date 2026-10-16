@@ -1,8 +1,8 @@
 # Testing conventions
 
-Tests live next to the source as `*.spec.ts` and use `Deno.test`. A behavior
-change requires focused tests for its success path, validation failures, and
-important boundary conditions.
+Unit tests live next to the source as `*.spec.ts` and use `Deno.test`. A
+behavior change requires focused tests for its success path, validation
+failures, and important boundary conditions.
 
 Prefer deterministic unit tests. Inject time, network, filesystem, and
 randomness dependencies where practical. Do not call real Serviceware or target

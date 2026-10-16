@@ -9,7 +9,6 @@ export type TargetHandler = (
   request: TargetRequest,
 ) => Response | Promise<Response>;
 
-/** Internal HTTP service behind the Cloud Connector. Records every request. */
 export class StubTarget {
   readonly requests: TargetRequest[] = [];
   private readonly server: Deno.HttpServer<Deno.NetAddr>;
