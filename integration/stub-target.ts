@@ -11,11 +11,17 @@ export type TargetHandler = (
 
 export class StubTarget {
   readonly requests: TargetRequest[] = [];
+  private readonly abortController = new AbortController();
   private readonly server: Deno.HttpServer<Deno.NetAddr>;
 
   private constructor(handler: TargetHandler) {
     this.server = Deno.serve(
-      { hostname: "127.0.0.1", port: 0, onListen: () => undefined },
+      {
+        hostname: "127.0.0.1",
+        port: 0,
+        signal: this.abortController.signal,
+        onListen: () => undefined,
+      },
       async (request) => {
         const recorded: TargetRequest = {
           method: request.method,
@@ -39,7 +45,9 @@ export class StubTarget {
     return `http://127.0.0.1:${this.server.addr.port}`;
   }
 
+  /** Aborts instead of draining, so handlers a failed test left waiting cannot block teardown. */
   async close(): Promise<void> {
-    await this.server.shutdown();
+    this.abortController.abort();
+    await this.server.finished;
   }
 }
