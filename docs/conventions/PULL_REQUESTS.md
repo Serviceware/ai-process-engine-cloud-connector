@@ -18,6 +18,9 @@ the released version:
 pnpm run changeset --empty
 ```
 
+Dependabot pull requests are exempt from the Changeset check. Add a release
+Changeset to one only if the update should produce a release.
+
 Do not edit the package version, changelog release heading, Git tags, or
 maintained image tags manually. The release workflow consumes Changesets and
 updates those artifacts.

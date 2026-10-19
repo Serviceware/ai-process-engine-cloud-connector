@@ -1,7 +1,7 @@
 # Changesets
 
 Every pull request must include either a release changeset or an empty
-changeset.
+changeset. Dependabot pull requests are exempt.
 
 Create a release changeset interactively:
 
