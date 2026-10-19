@@ -21,6 +21,8 @@ forward-proxy boundary.
 5. `runtime/yaml-forwarding.ts` resolves the forwarding policy and calls the
    selected HTTP target.
 6. `runtime/runtime-status.ts` supplies state for the local health endpoints.
+7. `runtime/http-server.ts` serves the local health endpoints, and
+   `runtime/http-dispatcher.ts` routes outbound connections through proxies.
 
 Keep these responsibilities separated. Protocol handling must not silently
 bypass forwarding policy, and configuration loading must not perform network
@@ -49,7 +51,9 @@ The runtime binds `0.0.0.0:8080` only for probes:
 - `/ready` reports whether the outbound cloud connection is open and includes
   connection and reload status.
 
-All other paths return `404`. Do not add proxy traffic to this local interface.
+All other paths return `404`, request targets that are not a path return
+`400`, and `CONNECT` and `TRACE` return `405`. Do not add proxy traffic to
+this local interface.
 
 ## Contracts and generated code
 

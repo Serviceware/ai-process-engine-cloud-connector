@@ -24,14 +24,10 @@ const logLevels: Record<LogLevel, number> = {
 export const defaultLogLevel: LogLevel = "info";
 
 export function isLogLevel(value: string): value is LogLevel {
-  return value === "error" || value === "warn" || value === "info" ||
-    value === "debug";
+  return value === "error" || value === "warn" || value === "info" || value === "debug";
 }
 
-export function createLogger(
-  level: LogLevel = defaultLogLevel,
-  sink: LogSink = console,
-): RuntimeLogger {
+export function createLogger(level: LogLevel = defaultLogLevel, sink: LogSink = console): RuntimeLogger {
   const enabled = logLevels[level];
 
   return {

@@ -1,3 +1,5 @@
+import type { Server } from "node:http";
+import { setGlobalDispatcher } from "undici";
 import { ConfigReloader, watchConfigFile } from "./config-reloader.ts";
 import {
   combineConfig,
@@ -9,26 +11,21 @@ import {
   loadEnvironmentConfig,
   loadVolumeConfig,
 } from "./config.ts";
-import {
-  ConnectorRuntime,
-  type ProtocolExecutor,
-  ReloadableProtocolExecutor,
-} from "./connector.ts";
+import { ConnectorRuntime, type ProtocolExecutor, ReloadableProtocolExecutor } from "./connector.ts";
+import { createHttpDispatcher } from "./http-dispatcher.ts";
+import { serve } from "./http-server.ts";
 import type { ReloadableRuntimeLogger, RuntimeLogger } from "./logger.ts";
 import { createLogger, createReloadableLogger } from "./logger.ts";
 import { fetchWithoutOutboundUrlPolicy } from "./outbound-url-policy.ts";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.ts";
 import { delay, ReloadableWebSocketClient } from "./websocket-client.ts";
-import {
-  createOAuthTokenCache,
-  createYamlForwardingExecutor,
-  type OAuthTokenCache,
-} from "./yaml-forwarding.ts";
+import { createOAuthTokenCache, createYamlForwardingExecutor, type OAuthTokenCache } from "./yaml-forwarding.ts";
 
 /** Exit codes (sysexits.h) so a supervisor can distinguish failure modes. */
 const EX_SOFTWARE = 70;
 const EX_OSERR = 71;
 const EX_CONFIG = 78;
+const shutdownGraceMs = 2_000;
 
 export function createProtocolExecutor(
   config: ConnectorConfig,
@@ -57,12 +54,7 @@ export async function createRuntimeBundle(
 ): Promise<RuntimeBundle> {
   logger.info("Starting Cloud Connector forward proxy");
   const oauthTokenCache = createOAuthTokenCache();
-  const initialExecutor = await createProtocolExecutor(
-    config,
-    configPath,
-    logger,
-    oauthTokenCache,
-  );
+  const initialExecutor = await createProtocolExecutor(config, configPath, logger, oauthTokenCache);
   const protocolExecutor = new ReloadableProtocolExecutor(initialExecutor);
   const runtime = new ConnectorRuntime({
     protocolExecutor,
@@ -84,10 +76,7 @@ export function createHandler(
     if (url.pathname === "/health") {
       const stale = now() - status.lastTickAt > environment.livenessStaleMs;
       if (stale) {
-        return Response.json(
-          { status: "unhealthy", reason: "supervision loop stalled" },
-          { status: 503 },
-        );
+        return Response.json({ status: "unhealthy", reason: "supervision loop stalled" }, { status: 503 });
       }
       return Response.json({ status: "ok" });
     }
@@ -116,6 +105,19 @@ export function createHandler(
   };
 }
 
+function serveProbes(
+  handler: (request: Request) => Response,
+  signal: AbortSignal,
+  logger: RuntimeLogger,
+): Promise<Server> {
+  return serve(handler, {
+    hostname: connectorListenHost,
+    port: connectorListenPort,
+    signal,
+    logger,
+  });
+}
+
 /**
  * Runs a task forever and recreates it if it fails while the process is live.
  */
@@ -138,20 +140,17 @@ async function superviseTask(
 }
 
 /** Rebinds the fixed local probe server if it stops unexpectedly. */
-async function superviseHttpServer(
-  initial: Deno.HttpServer,
-  handler: (request: Request) => Response,
+export async function superviseHttpServer(
+  initial: Server,
+  rebind: () => Promise<Server>,
   signal: AbortSignal,
   logger: RuntimeLogger,
 ): Promise<void> {
-  let server: Deno.HttpServer | undefined = initial;
+  let server: Server | undefined = initial;
   while (!signal.aborted) {
     if (server !== undefined) {
-      try {
-        await server.finished;
-      } catch (error) {
-        logger.error("HTTP server error", error);
-      }
+      // serve() logs server errors; only a close ends this server.
+      if (server.listening) await closed(server);
       if (signal.aborted) break;
       logger.error("HTTP server stopped unexpectedly; rebinding");
     }
@@ -160,14 +159,7 @@ async function superviseHttpServer(
     if (signal.aborted) break;
 
     try {
-      server = Deno.serve(
-        {
-          hostname: connectorListenHost,
-          port: connectorListenPort,
-          signal,
-        },
-        handler,
-      );
+      server = await rebind();
     } catch (error) {
       server = undefined;
       logger.error("Failed to rebind HTTP server", error);
@@ -175,43 +167,21 @@ async function superviseHttpServer(
   }
 }
 
-function logOutboundPolicy(
-  config: ConnectorConfig,
-  logger: RuntimeLogger,
-): void {
+function closed(server: Server): Promise<void> {
+  return new Promise((resolve) => server.once("close", () => resolve()));
+}
+
+function logOutboundPolicy(config: ConnectorConfig, logger: RuntimeLogger): void {
   const patterns = config.forwarding.length;
-  logger.info(
-    `YAML forwarding policy active with ${patterns} target rule(s)`,
-  );
+  logger.info(`YAML forwarding policy active with ${patterns} target rule(s)`);
 }
 
 // Main entry point
 if (import.meta.main) {
-  let startupComplete = false;
   let shuttingDown = false;
+  setGlobalDispatcher(createHttpDispatcher());
 
-  globalThis.addEventListener("unhandledrejection", (event) => {
-    if (!startupComplete) return;
-    event.preventDefault();
-    try {
-      console.error(
-        "[cloud-connector] unhandled rejection (recovered):",
-        event.reason,
-      );
-    } catch { /* never let logging terminate the process */ }
-  });
-  globalThis.addEventListener("error", (event) => {
-    if (!startupComplete) return;
-    event.preventDefault();
-    try {
-      console.error(
-        "[cloud-connector] uncaught error (recovered):",
-        event.error,
-      );
-    } catch { /* never let logging terminate the process */ }
-  });
-
-  const configPath = Deno.args[0] ?? defaultConfigPath;
+  const configPath = process.argv[2] ?? defaultConfigPath;
   let environment: EnvironmentConfig;
   let config: ConnectorConfig;
   let logger: ReloadableRuntimeLogger;
@@ -221,22 +191,16 @@ if (import.meta.main) {
     logger = createReloadableLogger(config.logLevel);
     logOutboundPolicy(config, logger);
   } catch (error) {
-    console.error(
-      "[cloud-connector] FATAL: invalid configuration:",
-      error instanceof Error ? error.message : error,
-    );
-    Deno.exit(EX_CONFIG);
+    console.error("[cloud-connector] FATAL: invalid configuration:", error instanceof Error ? error.message : error);
+    process.exit(EX_CONFIG);
   }
 
   let runtimeBundle: RuntimeBundle;
   try {
     runtimeBundle = await createRuntimeBundle(config, configPath, logger);
   } catch (error) {
-    console.error(
-      "[cloud-connector] FATAL: failed to initialize forward proxy:",
-      error,
-    );
-    Deno.exit(EX_SOFTWARE);
+    console.error("[cloud-connector] FATAL: failed to initialize forward proxy:", error);
+    process.exit(EX_SOFTWARE);
   }
 
   const status = createRuntimeStatus();
@@ -255,12 +219,7 @@ if (import.meta.main) {
     environment,
     async (nextConfig) => {
       // Construct every fallible component before changing live state.
-      const nextExecutor = await createProtocolExecutor(
-        nextConfig,
-        configPath,
-        logger,
-        runtimeBundle.oauthTokenCache,
-      );
+      const nextExecutor = await createProtocolExecutor(nextConfig, configPath, logger, runtimeBundle.oauthTokenCache);
 
       runtimeBundle.protocolExecutor.replace(nextExecutor);
       logger.setLevel(nextConfig.logLevel);
@@ -273,19 +232,12 @@ if (import.meta.main) {
   );
 
   // First bind is fatal: a port conflict is unrecoverable in-process.
-  let server: Deno.HttpServer;
+  let server: Server;
   try {
-    server = Deno.serve(
-      {
-        hostname: connectorListenHost,
-        port: connectorListenPort,
-        signal: abortController.signal,
-      },
-      handler,
-    );
+    server = await serveProbes(handler, abortController.signal, logger);
   } catch (error) {
     console.error("[cloud-connector] FATAL: cannot bind HTTP server:", error);
-    Deno.exit(EX_OSERR);
+    process.exit(EX_OSERR);
   }
 
   const shutdown = () => {
@@ -293,15 +245,29 @@ if (import.meta.main) {
     shuttingDown = true;
     abortController.abort();
   };
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
-  startupComplete = true;
+  // Before this point an unexpected fault terminates startup.
+  process.on("unhandledRejection", (reason) => {
+    try {
+      console.error("[cloud-connector] unhandled rejection (recovered):", reason);
+    } catch {
+      /* never let logging terminate the process */
+    }
+  });
+  process.on("uncaughtException", (error) => {
+    try {
+      console.error("[cloud-connector] uncaught error (recovered):", error);
+    } catch {
+      /* never let logging terminate the process */
+    }
+  });
 
   await Promise.all([
     superviseHttpServer(
       server,
-      handler,
+      () => serveProbes(handler, abortController.signal, logger),
       abortController.signal,
       logger,
     ),
@@ -313,14 +279,11 @@ if (import.meta.main) {
     ),
     superviseTask(
       "config-watcher",
-      () =>
-        watchConfigFile(
-          configPath,
-          configReloader,
-          abortController.signal,
-        ),
+      () => watchConfigFile(configPath, configReloader, abortController.signal),
       abortController.signal,
       logger,
     ),
   ]);
+  // A WebSocket whose peer never answers the close frame keeps its socket open.
+  setTimeout(() => process.exit(0), shutdownGraceMs).unref();
 }

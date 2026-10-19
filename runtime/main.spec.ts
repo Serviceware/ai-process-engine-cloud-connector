@@ -1,12 +1,9 @@
-import { assertEquals, assertRejects } from "@std/assert";
-import {
-  combineConfig,
-  loadEnvironmentConfig,
-  parseVolumeConfig,
-} from "./config.ts";
+import type { Server } from "node:http";
+import { expect, test, vi } from "vitest";
+import { combineConfig, loadEnvironmentConfig, parseVolumeConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
-import { createHandler, createProtocolExecutor } from "./main.ts";
-import { RuntimeError } from "./runtime-error.ts";
+import { serve } from "./http-server.ts";
+import { createHandler, createProtocolExecutor, superviseHttpServer } from "./main.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
 
 const silentLogger = createLogger("error", {
@@ -33,23 +30,23 @@ forwarding:
 `),
   );
 
-Deno.test("health stays ok and the removed local WebSocket endpoint is absent", async () => {
+test("health stays ok and the removed local WebSocket endpoint is absent", async () => {
   const status = createRuntimeStatus();
   const handler = createHandler(environment(), status);
 
   const healthResponse = handler(new Request("http://localhost/health"));
-  assertEquals(healthResponse.status, 200);
-  assertEquals(await healthResponse.json(), { status: "ok" });
-  assertEquals(handler(new Request("http://localhost/ws")).status, 404);
+  expect(healthResponse.status).toStrictEqual(200);
+  expect(await healthResponse.json()).toStrictEqual({ status: "ok" });
+  expect(handler(new Request("http://localhost/ws")).status).toStrictEqual(404);
 });
 
-Deno.test("ready reflects the required outbound WebSocket connection", async () => {
+test("ready reflects the required outbound WebSocket connection", async () => {
   const status = createRuntimeStatus();
   const handler = createHandler(environment(), status);
 
   const notReady = handler(new Request("http://localhost/ready"));
-  assertEquals(notReady.status, 503);
-  assertEquals(await notReady.json(), {
+  expect(notReady.status).toStrictEqual(503);
+  expect(await notReady.json()).toStrictEqual({
     status: "not_ready",
     websocketConnected: false,
     connectionState: "disconnected",
@@ -61,8 +58,8 @@ Deno.test("ready reflects the required outbound WebSocket connection", async () 
 
   status.connectionState = "open";
   const ready = handler(new Request("http://localhost/ready"));
-  assertEquals(ready.status, 200);
-  assertEquals(await ready.json(), {
+  expect(ready.status).toStrictEqual(200);
+  expect(await ready.json()).toStrictEqual({
     status: "ready",
     websocketConnected: true,
     connectionState: "open",
@@ -73,36 +70,74 @@ Deno.test("ready reflects the required outbound WebSocket connection", async () 
   });
 });
 
-Deno.test("health fails only when the supervision loop is stale", async () => {
+test("health fails only when the supervision loop is stale", async () => {
   const staticConfig = environment();
   const status = createRuntimeStatus(0);
   let clock = staticConfig.livenessStaleMs;
   const handler = createHandler(staticConfig, status, () => clock);
 
   status.connectionState = "disconnected";
-  assertEquals(handler(new Request("http://localhost/health")).status, 200);
+  expect(handler(new Request("http://localhost/health")).status).toStrictEqual(200);
 
   clock += 1;
   const stale = handler(new Request("http://localhost/health"));
-  assertEquals(stale.status, 503);
-  assertEquals((await stale.json()).status, "unhealthy");
+  expect(stale.status).toStrictEqual(503);
+  expect(await stale.json()).toMatchObject({ status: "unhealthy" });
 });
 
-Deno.test("createProtocolExecutor uses only the validated YAML forwarding snapshot", async () => {
-  const executor = await createProtocolExecutor(
-    config(),
-    "/config/cloud-connector.yml",
+test("createProtocolExecutor uses only the validated YAML forwarding snapshot", async () => {
+  const executor = await createProtocolExecutor(config(), "/config/cloud-connector.yml", silentLogger);
+
+  await expect(
+    executor.execute({
+      type: "request",
+      requestId: "request-1",
+      request: { method: "GET", url: "https://blocked.example/health" },
+    }),
+  ).rejects.toThrow(
+    expect.objectContaining({
+      name: "RuntimeError",
+      message: expect.stringContaining("forwarding target rule"),
+    }),
+  );
+});
+
+test("superviseHttpServer rebinds after a server error and a later close", async () => {
+  const abortController = new AbortController();
+  const bind = () =>
+    serve(() => new Response("ok"), {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger: silentLogger,
+    });
+  const initial = await bind();
+  const rebound: Server[] = [];
+  const supervisor = superviseHttpServer(
+    initial,
+    async () => {
+      const server = await bind();
+      rebound.push(server);
+      return server;
+    },
+    abortController.signal,
     silentLogger,
   );
 
-  await assertRejects(
-    () =>
-      executor.execute({
-        type: "request",
-        requestId: "request-1",
-        request: { method: "GET", url: "https://blocked.example/health" },
-      }),
-    RuntimeError,
-    "forwarding target rule",
-  );
+  try {
+    initial.emit("error", new Error("accept EMFILE"));
+    initial.close();
+    await vi.waitFor(() => expect(rebound[0]?.listening).toBeTruthy(), {
+      timeout: 5_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(rebound).toHaveLength(1);
+    rebound[0].close();
+    await vi.waitFor(() => expect(rebound[1]?.listening).toBeTruthy(), {
+      timeout: 5_000,
+    });
+  } finally {
+    abortController.abort();
+  }
+  await supervisor;
 });

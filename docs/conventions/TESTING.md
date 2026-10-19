@@ -1,8 +1,8 @@
 # Testing conventions
 
-Unit tests live next to the source as `*.spec.ts` and use `Deno.test`. A
-behavior change requires focused tests for its success path, validation
-failures, and important boundary conditions.
+Unit tests live next to the source as `*.spec.ts` and use Vitest. A behavior
+change requires focused tests for its success path, validation failures, and
+important boundary conditions.
 
 Prefer deterministic unit tests. Inject time, network, filesystem, and
 randomness dependencies where practical. Do not call real Serviceware or target
@@ -23,7 +23,7 @@ frames, forwarding policy, reconnects, hot reload, probes, signals, and exit
 codes. Keep fine-grained cases in unit tests.
 
 ```bash
-deno task test:integration
+pnpm run test:integration
 ```
 
 The connector binds its fixed probe port `8080`, so the integration tests run
@@ -37,7 +37,7 @@ Run the smallest relevant checks while developing. Before completing a change,
 run:
 
 ```bash
-deno task ci
+pnpm run ci
 ```
 
 This checks formatting, linting, types, tests, generated API models, and release

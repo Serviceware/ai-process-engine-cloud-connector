@@ -1,75 +1,54 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
 import { syncReleaseArtifacts } from "./sync-release-artifacts.ts";
 
-Deno.test("syncReleaseArtifacts checks and updates discovered release references", async () => {
+test("syncReleaseArtifacts checks and updates discovered release references", async () => {
   const root = await createFixture();
   try {
-    assertEquals(await syncReleaseArtifacts({ root, checkOnly: true }), []);
+    expect(await syncReleaseArtifacts({ root, checkOnly: true })).toStrictEqual([]);
 
-    await Deno.writeTextFile(
-      `${root}/templates/starter.yml`,
-      "image: ghcr.io/serviceware/cloud-connector:0.9.0\n",
-    );
-    await assertRejects(
-      () => syncReleaseArtifacts({ root, checkOnly: true }),
-      Error,
+    await writeFile(`${root}/templates/starter.yml`, "image: ghcr.io/serviceware/cloud-connector:0.9.0\n");
+    await expect(syncReleaseArtifacts({ root, checkOnly: true })).rejects.toThrow(
       "must reference ghcr.io/serviceware/cloud-connector:1.2.3",
     );
 
-    await Deno.writeTextFile(
-      `${root}/CHANGELOG.md`,
-      "# Changelog\n\n## 1.2.3\n",
-    );
-    assertEquals(
-      await syncReleaseArtifacts({ root, releaseDate: "2026-09-15" }),
-      ["templates/starter.yml", "CHANGELOG.md"],
-    );
-    assertEquals(
-      await Deno.readTextFile(`${root}/templates/starter.yml`),
+    await writeFile(`${root}/CHANGELOG.md`, "# Changelog\n\n## 1.2.3\n");
+    expect(await syncReleaseArtifacts({ root, releaseDate: "2026-09-15" })).toStrictEqual([
+      "templates/starter.yml",
+      "CHANGELOG.md",
+    ]);
+    expect(await readFile(`${root}/templates/starter.yml`, "utf8")).toStrictEqual(
       "image: ghcr.io/serviceware/cloud-connector:1.2.3\n",
     );
-    assertEquals(
-      await Deno.readTextFile(`${root}/CHANGELOG.md`),
-      "# Changelog\n\n## 1.2.3 - 2026-09-15\n",
-    );
+    expect(await readFile(`${root}/CHANGELOG.md`, "utf8")).toStrictEqual("# Changelog\n\n## 1.2.3 - 2026-09-15\n");
   } finally {
-    await Deno.remove(root, { recursive: true });
+    await rm(root, { recursive: true });
   }
 });
 
-Deno.test("syncReleaseArtifacts enforces one image reference per maintained file", async () => {
+test("syncReleaseArtifacts enforces one image reference per maintained file", async () => {
   const root = await createFixture();
   try {
-    await Deno.writeTextFile(
+    await writeFile(
       `${root}/docs/images.md`,
-      "ghcr.io/serviceware/cloud-connector:1.2.3\n" +
-        "ghcr.io/serviceware/cloud-connector:0.9.0\n",
+      "ghcr.io/serviceware/cloud-connector:1.2.3\n" + "ghcr.io/serviceware/cloud-connector:0.9.0\n",
     );
-    await assertRejects(
-      () => syncReleaseArtifacts({ root, checkOnly: true }),
-      Error,
+    await expect(syncReleaseArtifacts({ root, checkOnly: true })).rejects.toThrow(
       "must contain exactly one Cloud Connector image",
     );
   } finally {
-    await Deno.remove(root, { recursive: true });
+    await rm(root, { recursive: true });
   }
 });
 
 async function createFixture(): Promise<string> {
-  const root = await Deno.makeTempDir();
-  await Deno.mkdir(`${root}/docs`, { recursive: true });
-  await Deno.mkdir(`${root}/templates`, { recursive: true });
-  await Deno.writeTextFile(
-    `${root}/deno.json`,
-    '{"version":"1.2.3"}\n',
-  );
-  await Deno.writeTextFile(
-    `${root}/CHANGELOG.md`,
-    "# Changelog\n\n## 1.2.3 - 2026-09-14\n",
-  );
-  await Deno.writeTextFile(
-    `${root}/README.md`,
-    "Use ghcr.io/serviceware/cloud-connector:1.2.3.\n",
-  );
+  const root = await mkdtemp(join(tmpdir(), "cloud-connector-release-"));
+  await mkdir(`${root}/docs`, { recursive: true });
+  await mkdir(`${root}/templates`, { recursive: true });
+  await writeFile(`${root}/package.json`, '{"version":"1.2.3"}\n');
+  await writeFile(`${root}/CHANGELOG.md`, "# Changelog\n\n## 1.2.3 - 2026-09-14\n");
+  await writeFile(`${root}/README.md`, "Use ghcr.io/serviceware/cloud-connector:1.2.3.\n");
   return root;
 }

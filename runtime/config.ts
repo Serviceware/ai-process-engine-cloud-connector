@@ -1,4 +1,5 @@
-import { parse as parseYaml } from "@std/yaml";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml, type ScalarTag } from "yaml";
 import { defaultLogLevel, isLogLevel, type LogLevel } from "./logger.ts";
 import { RuntimeError } from "./runtime-error.ts";
 
@@ -24,22 +25,22 @@ export type ResponseForwardingConfig = {
 
 export type AuthConfig =
   | {
-    type: "basic";
-    username: string;
-    password: string;
-  }
+      type: "basic";
+      username: string;
+      password: string;
+    }
   | {
-    type: "bearer";
-    token: string;
-  }
+      type: "bearer";
+      token: string;
+    }
   | {
-    type: "oauth2";
-    /** OAuth 2.0 token endpoint used for the client-credentials grant. */
-    issuer: string;
-    clientId: string;
-    clientSecret: string;
-    scope?: string;
-  };
+      type: "oauth2";
+      /** OAuth 2.0 token endpoint used for the client-credentials grant. */
+      issuer: string;
+      clientId: string;
+      clientSecret: string;
+      scope?: string;
+    };
 
 export type ForwardingConfig = {
   /** Regular expression matched against the complete requested target URL. */
@@ -114,73 +115,59 @@ const defaultMaxConcurrentRequests = 100;
 const defaultDrainTimeoutSeconds = 30;
 const serverHeartbeatIntervalMs = 30_000;
 
-const supportedMethods = new Set([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-]);
+const supportedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
-export function loadEnvironmentConfig(
-  env: Record<string, string | undefined> = Deno.env.toObject(),
-): EnvironmentConfig {
+export function loadEnvironmentConfig(env: Record<string, string | undefined> = process.env): EnvironmentConfig {
   return {
-    cloudConnectorHost: readRequiredUrl(
-      env.CLOUD_CONNECTOR_HOST,
-      "CLOUD_CONNECTOR_HOST",
-      ["http:", "https:"],
-    ),
-    cloudConnectorClientId: readRequiredText(
-      env.CLOUD_CONNECTOR_CLIENT_ID,
-      "CLOUD_CONNECTOR_CLIENT_ID",
-    ),
-    cloudConnectorClientSecret: readRequiredText(
-      env.CLOUD_CONNECTOR_CLIENT_SECRET,
-      "CLOUD_CONNECTOR_CLIENT_SECRET",
-    ),
-    reconnectInitialDelayMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,
-      defaultReconnectInitialSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS",
-    ) * 1000,
-    reconnectMaxDelayMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS,
-      defaultReconnectMaxSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS",
-    ) * 1000,
-    connectTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS,
-      defaultConnectTimeoutSeconds,
-      "CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS",
-    ) * 1000,
-    reconnectStableThresholdMs: readInteger(
-      env.CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS,
-      defaultReconnectStableSeconds,
-      "CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS",
-    ) * 1000,
+    cloudConnectorHost: readRequiredUrl(env.CLOUD_CONNECTOR_HOST, "CLOUD_CONNECTOR_HOST", ["http:", "https:"]),
+    cloudConnectorClientId: readRequiredText(env.CLOUD_CONNECTOR_CLIENT_ID, "CLOUD_CONNECTOR_CLIENT_ID"),
+    cloudConnectorClientSecret: readRequiredText(env.CLOUD_CONNECTOR_CLIENT_SECRET, "CLOUD_CONNECTOR_CLIENT_SECRET"),
+    reconnectInitialDelayMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS,
+        defaultReconnectInitialSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_INITIAL_SECONDS",
+      ) * 1000,
+    reconnectMaxDelayMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS,
+        defaultReconnectMaxSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_MAX_SECONDS",
+      ) * 1000,
+    connectTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS,
+        defaultConnectTimeoutSeconds,
+        "CLOUD_CONNECTOR_CONNECT_TIMEOUT_SECONDS",
+      ) * 1000,
+    reconnectStableThresholdMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS,
+        defaultReconnectStableSeconds,
+        "CLOUD_CONNECTOR_RECONNECT_STABLE_SECONDS",
+      ) * 1000,
     heartbeatTimeoutFactor: readNonNegativeInteger(
       env.CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR,
       defaultHeartbeatTimeoutFactor,
       "CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR",
     ),
-    tokenFetchTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS,
-      defaultTokenFetchTimeoutSeconds,
-      "CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS",
-    ) * 1000,
+    tokenFetchTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS,
+        defaultTokenFetchTimeoutSeconds,
+        "CLOUD_CONNECTOR_TOKEN_TIMEOUT_SECONDS",
+      ) * 1000,
     reconnectJitterRatio: readRatio(
       env.CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO,
       defaultReconnectJitterRatio,
       "CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO",
     ),
-    livenessStaleMs: readInteger(
-      env.CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS,
-      defaultLivenessStaleSeconds,
-      "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS",
-    ) * 1000,
+    livenessStaleMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS,
+        defaultLivenessStaleSeconds,
+        "CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS",
+      ) * 1000,
     maxResponseBodyBytes: readInteger(
       env.CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES,
       defaultMaxResponseBodyBytes,
@@ -191,35 +178,69 @@ export function loadEnvironmentConfig(
       defaultMaxConcurrentRequests,
       "CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS",
     ),
-    drainTimeoutMs: readInteger(
-      env.CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS,
-      defaultDrainTimeoutSeconds,
-      "CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS",
-    ) * 1000,
+    drainTimeoutMs:
+      readInteger(
+        env.CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS,
+        defaultDrainTimeoutSeconds,
+        "CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS",
+      ) * 1000,
   };
 }
 
 export async function loadVolumeConfig(path: string): Promise<VolumeConfig> {
   let content: string;
   try {
-    content = await Deno.readTextFile(path);
+    content = await readFile(path, "utf8");
   } catch (error) {
-    throw new RuntimeError(
-      "CONFIG_ERROR",
-      `Cannot read required Cloud Connector YAML config at ${path}`,
-      { cause: error },
-    );
+    throw new RuntimeError("CONFIG_ERROR", `Cannot read required Cloud Connector YAML config at ${path}`, {
+      cause: error,
+    });
   }
   return parseVolumeConfig(content, path);
 }
 
-export function parseVolumeConfig(
-  content: string,
-  path = "cloud-connector.yml",
-): VolumeConfig {
+/**
+ * Accepts YAML 1.1 integer forms: digit separators, `0b` binary, `0x` hex,
+ * and leading-zero octal.
+ */
+const yaml11Integer: ScalarTag = {
+  tag: "tag:yaml.org,2002:int",
+  default: true,
+  test: /^[-+]?(?:0b[01_]*[01]|0x[0-9a-fA-F_]*[0-9a-fA-F]|0[0-7_]*[0-7]|[1-9][0-9_]*_[0-9_]*[0-9])$/,
+  resolve: resolveYaml11Integer,
+};
+
+/**
+ * Keeps leading-zero decimals such as `08` and `0o` octal as strings; YAML 1.2
+ * would read them as integers.
+ */
+const yaml11String: ScalarTag = {
+  tag: "tag:yaml.org,2002:str",
+  default: true,
+  test: /^[-+]?(?:0[0-9_]*[89][0-9_]*|0o[0-7_]+)$/,
+  resolve: (source) => source,
+};
+
+function resolveYaml11Integer(source: string): number {
+  const sign = source.startsWith("-") ? -1 : 1;
+  const digits = source.replace(/^[-+]/, "").replaceAll("_", "");
+  if (digits.startsWith("0b")) return sign * Number.parseInt(digits.slice(2), 2);
+  if (digits.startsWith("0x")) {
+    return sign * Number.parseInt(digits.slice(2), 16);
+  }
+  if (digits.length > 1 && digits.startsWith("0")) {
+    return sign * Number.parseInt(digits, 8);
+  }
+  return sign * Number.parseInt(digits, 10);
+}
+
+export function parseVolumeConfig(content: string, path = "cloud-connector.yml"): VolumeConfig {
   let value: unknown;
   try {
-    value = parseYaml(content);
+    value = parseYaml(content, {
+      merge: true,
+      customTags: (tags) => [yaml11Integer, yaml11String, ...tags],
+    });
   } catch (error) {
     throw new RuntimeError(
       "YAML_PARSE_ERROR",
@@ -235,18 +256,13 @@ export function parseVolumeConfig(
   } catch (error) {
     throw new RuntimeError(
       "CONFIG_ERROR",
-      `Invalid Cloud Connector YAML config at ${path}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Invalid Cloud Connector YAML config at ${path}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
 }
 
-export function combineConfig(
-  environment: EnvironmentConfig,
-  volume: VolumeConfig,
-): ConnectorConfig {
+export function combineConfig(environment: EnvironmentConfig, volume: VolumeConfig): ConnectorConfig {
   validateLivenessWindow(
     environment.livenessStaleMs,
     environment.reconnectMaxDelayMs,
@@ -256,10 +272,7 @@ export function combineConfig(
 
   return {
     ...environment,
-    websocketUrl: deriveWebSocketUrl(
-      environment.cloudConnectorHost,
-      volume.connection.purpose,
-    ),
+    websocketUrl: deriveWebSocketUrl(environment.cloudConnectorHost, volume.connection.purpose),
     heartbeatIntervalMs: volume.connection.heartbeatIntervalMs,
     logLevel: volume.logging.level,
     forwarding: volume.forwarding,
@@ -268,40 +281,24 @@ export function combineConfig(
 
 function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
   const config = requireRecord(value, "configuration");
-  rejectUnknown(
-    config,
-    ["connection", "logging", "forwarding"],
-    "configuration",
-  );
+  rejectUnknown(config, ["connection", "logging", "forwarding"], "configuration");
 
   const connection = requireRecord(config.connection, "connection");
-  rejectUnknown(
-    connection,
-    ["purpose", "heartbeatIntervalSeconds"],
-    "connection",
-  );
-  const purpose = connection.purpose === undefined
-    ? "main"
-    : requireTrimmedNonEmptyString(connection.purpose, "connection.purpose");
-  const heartbeatIntervalSeconds = connection.heartbeatIntervalSeconds ===
-      undefined
-    ? defaultHeartbeatSeconds
-    : requirePositiveInteger(
-      connection.heartbeatIntervalSeconds,
-      "connection.heartbeatIntervalSeconds",
-    );
+  rejectUnknown(connection, ["purpose", "heartbeatIntervalSeconds"], "connection");
+  const purpose =
+    connection.purpose === undefined ? "main" : requireTrimmedNonEmptyString(connection.purpose, "connection.purpose");
+  const heartbeatIntervalSeconds =
+    connection.heartbeatIntervalSeconds === undefined
+      ? defaultHeartbeatSeconds
+      : requirePositiveInteger(connection.heartbeatIntervalSeconds, "connection.heartbeatIntervalSeconds");
 
   let logLevel = defaultLogLevel;
   if (config.logging !== undefined) {
     const logging = requireRecord(config.logging, "logging");
     rejectUnknown(logging, ["level"], "logging");
     if (logging.level !== undefined) {
-      if (
-        typeof logging.level !== "string" || !isLogLevel(logging.level)
-      ) {
-        throw new Error(
-          "logging.level must be one of: error, warn, info, debug",
-        );
+      if (typeof logging.level !== "string" || !isLogLevel(logging.level)) {
+        throw new Error("logging.level must be one of: error, warn, info, debug");
       }
       logLevel = logging.level;
     }
@@ -317,33 +314,16 @@ function validateAndNormalizeVolumeConfig(value: unknown): VolumeConfig {
   };
 }
 
-function validateAndNormalizeForwardingConfigs(
-  value: unknown,
-): readonly ForwardingConfig[] {
+function validateAndNormalizeForwardingConfigs(value: unknown): readonly ForwardingConfig[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("forwarding must be a non-empty array of rules");
   }
-  return value.map((entry, index) =>
-    validateAndNormalizeForwardingConfig(entry, `forwarding[${index}]`)
-  );
+  return value.map((entry, index) => validateAndNormalizeForwardingConfig(entry, `forwarding[${index}]`));
 }
 
-function validateAndNormalizeForwardingConfig(
-  value: unknown,
-  path: string,
-): ForwardingConfig {
+function validateAndNormalizeForwardingConfig(value: unknown, path: string): ForwardingConfig {
   const config = requireRecord(value, path);
-  rejectUnknown(
-    config,
-    [
-      "target",
-      "methods",
-      "request",
-      "response",
-      "timeout",
-    ],
-    path,
-  );
+  rejectUnknown(config, ["target", "methods", "request", "response", "timeout"], path);
   requireNonEmptyString(config.target, `${path}.target`);
   const target = config.target.trim();
   try {
@@ -354,38 +334,29 @@ function validateAndNormalizeForwardingConfig(
     });
   }
   if (!target.startsWith("^") || !target.endsWith("$")) {
-    throw new Error(
-      `${path}.target must start with ^ and end with $ so it matches the complete URL`,
-    );
+    throw new Error(`${path}.target must start with ^ and end with $ so it matches the complete URL`);
   }
   if (hasUnsafeNestedQuantifier(target)) {
-    throw new Error(
-      `${path}.target contains nested or ambiguous repetition that may cause excessive backtracking`,
-    );
+    throw new Error(`${path}.target contains nested or ambiguous repetition that may cause excessive backtracking`);
   }
 
   if (config.methods !== undefined) {
     if (
       !Array.isArray(config.methods) ||
       new Set(config.methods).size !== config.methods.length ||
-      config.methods.some((method) =>
-        typeof method !== "string" || !supportedMethods.has(method)
-      )
+      config.methods.some((method) => typeof method !== "string" || !supportedMethods.has(method))
     ) {
-      throw new Error(
-        `${path}.methods must be an array of supported uppercase HTTP methods`,
-      );
+      throw new Error(`${path}.methods must be an array of supported uppercase HTTP methods`);
     }
   }
   if (
     config.timeout !== undefined &&
     (typeof config.timeout !== "number" ||
-      !Number.isInteger(config.timeout) || config.timeout < 1_000 ||
+      !Number.isInteger(config.timeout) ||
+      config.timeout < 1_000 ||
       config.timeout > 300_000)
   ) {
-    throw new Error(
-      `${path}.timeout must be an integer between 1000 and 300000`,
-    );
+    throw new Error(`${path}.timeout must be an integer between 1000 and 300000`);
   }
   if (config.request !== undefined) {
     validateRequestConfig(config.request, `${path}.request`);
@@ -405,11 +376,7 @@ function validateAndNormalizeForwardingConfig(
 
 function validateRequestConfig(value: unknown, path: string): void {
   const config = requireRecord(value, path);
-  rejectUnknown(
-    config,
-    ["headers", "pathPrefix", "forwardIncomingCredentials", "auth"],
-    path,
-  );
+  rejectUnknown(config, ["headers", "pathPrefix", "forwardIncomingCredentials", "auth"], path);
   if (config.headers !== undefined) {
     validateHeaderConfig(config.headers, `${path}.headers`);
   }
@@ -423,15 +390,10 @@ function validateRequestConfig(value: unknown, path: string): void {
       config.pathPrefix.includes("{{") ||
       config.pathPrefix.includes("}}")
     ) {
-      throw new Error(
-        `${path}.pathPrefix must be an absolute path without query or fragment`,
-      );
+      throw new Error(`${path}.pathPrefix must be an absolute path without query or fragment`);
     }
   }
-  if (
-    config.forwardIncomingCredentials !== undefined &&
-    typeof config.forwardIncomingCredentials !== "boolean"
-  ) {
+  if (config.forwardIncomingCredentials !== undefined && typeof config.forwardIncomingCredentials !== "boolean") {
     throw new Error(`${path}.forwardIncomingCredentials must be a boolean`);
   }
   if (config.auth !== undefined) {
@@ -462,11 +424,7 @@ function validateAuthConfig(value: unknown, path: string): void {
     return;
   }
   if (config.type === "oauth2") {
-    rejectUnknown(
-      config,
-      ["type", "issuer", "clientId", "clientSecret", "scope"],
-      path,
-    );
+    rejectUnknown(config, ["type", "issuer", "clientId", "clientSecret", "scope"], path);
     validateAuthValue(config.issuer, `${path}.issuer`);
     validateAuthValue(config.clientId, `${path}.clientId`);
     validateAuthValue(config.clientSecret, `${path}.clientSecret`);
@@ -483,11 +441,7 @@ function validateAuthConfig(value: unknown, path: string): void {
 
 function validateAuthValue(value: unknown, path: string): void {
   requireNonEmptyString(value, path);
-  validateTemplateExpressions(
-    value,
-    path,
-    (expression) => /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression),
-  );
+  validateTemplateExpressions(value, path, (expression) => /^env(?:\.|:)[A-Za-z_][A-Za-z0-9_]*$/.test(expression));
 }
 
 function validateHeaderConfig(value: unknown, path: string): void {
@@ -503,8 +457,7 @@ function validateHeaderConfig(value: unknown, path: string): void {
   }
   if (
     config.remove !== undefined &&
-    (!Array.isArray(config.remove) ||
-      config.remove.some((entry) => typeof entry !== "string"))
+    (!Array.isArray(config.remove) || config.remove.some((entry) => typeof entry !== "string"))
   ) {
     throw new Error(`${path}.remove must be an array of strings`);
   }
@@ -521,25 +474,16 @@ function validateHeaderTemplate(template: string, path: string): void {
   );
 }
 
-export function deriveWebSocketUrl(
-  cloudConnectorHost: string,
-  purpose = "main",
-): string {
+export function deriveWebSocketUrl(cloudConnectorHost: string, purpose = "main"): string {
   const url = new URL(cloudConnectorHost);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `/configuration-store/api/v1/connector/${
-    encodeURIComponent(purpose)
-  }/connect`;
+  url.pathname = `/configuration-store/api/v1/connector/${encodeURIComponent(purpose)}/connect`;
   url.search = "";
   url.hash = "";
   return url.toString();
 }
 
-function validateTemplateExpressions(
-  template: string,
-  path: string,
-  allows: (expression: string) => boolean,
-): void {
+function validateTemplateExpressions(template: string, path: string, allows: (expression: string) => boolean): void {
   const pattern = /\{\{\s*([^}]+)\s*\}\}/g;
   for (const match of template.matchAll(pattern)) {
     if (!allows(match[1].trim())) {
@@ -567,10 +511,7 @@ function validateLivenessWindow(
     );
   }
   const peerSilenceWindowMs = heartbeatIntervalMs * heartbeatTimeoutFactor;
-  if (
-    heartbeatTimeoutFactor > 0 &&
-    peerSilenceWindowMs <= serverHeartbeatIntervalMs
-  ) {
+  if (heartbeatTimeoutFactor > 0 && peerSilenceWindowMs <= serverHeartbeatIntervalMs) {
     throw new Error(
       "The YAML connection.heartbeatIntervalSeconds multiplied by " +
         "CLOUD_CONNECTOR_HEARTBEAT_TIMEOUT_FACTOR must be greater than the " +
@@ -582,10 +523,12 @@ function validateLivenessWindow(
 /** Conservative guard against common exponential-backtracking expressions. */
 function hasUnsafeNestedQuantifier(pattern: string): boolean {
   type GroupState = { hasQuantifier: boolean; hasAlternation: boolean };
-  const groups: GroupState[] = [{
-    hasQuantifier: false,
-    hasAlternation: false,
-  }];
+  const groups: GroupState[] = [
+    {
+      hasQuantifier: false,
+      hasAlternation: false,
+    },
+  ];
   let escaped = false;
   let inCharacterClass = false;
   let previousGroup: GroupState | undefined;
@@ -644,10 +587,7 @@ function hasUnsafeNestedQuantifier(pattern: string): boolean {
       }
     }
     if (isQuantifier) {
-      if (
-        isUnbounded && previousGroup &&
-        (previousGroup.hasQuantifier || previousGroup.hasAlternation)
-      ) {
+      if (isUnbounded && previousGroup && (previousGroup.hasQuantifier || previousGroup.hasAlternation)) {
         return true;
       }
       groups.at(-1)!.hasQuantifier = true;
@@ -659,11 +599,7 @@ function hasUnsafeNestedQuantifier(pattern: string): boolean {
   return false;
 }
 
-function requireAbsoluteUrl(
-  value: unknown,
-  name: string,
-  allowedProtocols: string[],
-): string {
+function requireAbsoluteUrl(value: unknown, name: string, allowedProtocols: string[]): string {
   requireNonEmptyString(value, name);
   let url: URL;
   try {
@@ -672,18 +608,15 @@ function requireAbsoluteUrl(
     throw new Error(`${name} must be a valid absolute URL`, { cause: error });
   }
   if (!allowedProtocols.includes(url.protocol)) {
-    throw new Error(
-      `${name} must use one of these protocols: ${allowedProtocols.join(", ")}`,
-    );
+    throw new Error(`${name} must use one of these protocols: ${allowedProtocols.join(", ")}`);
+  }
+  if (url.username || url.password) {
+    throw new Error(`${name} must not contain credentials`);
   }
   return url.toString();
 }
 
-function readRequiredUrl(
-  value: string | undefined,
-  name: string,
-  allowedProtocols: string[],
-): string {
+function readRequiredUrl(value: string | undefined, name: string, allowedProtocols: string[]): string {
   if (!value?.trim()) throw new Error(`${name} is required`);
   return requireAbsoluteUrl(value, name, allowedProtocols);
 }
@@ -701,11 +634,7 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function rejectUnknown(
-  value: Record<string, unknown>,
-  allowed: string[],
-  path: string,
-): void {
+function rejectUnknown(value: Record<string, unknown>, allowed: string[], path: string): void {
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) throw new Error(`${path}.${unknown} is not supported`);
 }
@@ -714,10 +643,7 @@ function requireString(value: unknown, path: string): asserts value is string {
   if (typeof value !== "string") throw new Error(`${path} must be a string`);
 }
 
-function requireNonEmptyString(
-  value: unknown,
-  path: string,
-): asserts value is string {
+function requireNonEmptyString(value: unknown, path: string): asserts value is string {
   requireString(value, path);
   if (!value.trim()) throw new Error(`${path} must not be empty`);
 }
@@ -734,11 +660,7 @@ function requirePositiveInteger(value: unknown, name: string): number {
   return value;
 }
 
-function readInteger(
-  value: string | undefined,
-  fallback: number,
-  name: string,
-): number {
+function readInteger(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === "") return fallback;
   if (!/^\d+$/.test(value.trim())) {
     throw new Error(`${name} must be a positive integer`);
@@ -750,11 +672,7 @@ function readInteger(
   return parsed;
 }
 
-function readNonNegativeInteger(
-  value: string | undefined,
-  fallback: number,
-  name: string,
-): number {
+function readNonNegativeInteger(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === "") return fallback;
   if (!/^\d+$/.test(value.trim())) {
     throw new Error(`${name} must be a non-negative integer`);
@@ -766,11 +684,7 @@ function readNonNegativeInteger(
   return parsed;
 }
 
-function readRatio(
-  value: string | undefined,
-  fallback: number,
-  name: string,
-): number {
+function readRatio(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number.parseFloat(value.trim());
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
