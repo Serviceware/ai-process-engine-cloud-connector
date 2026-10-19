@@ -18,7 +18,10 @@ permissions:
 jobs:
   changesets:
     name: Changeset status
-    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+    if: >-
+      github.event_name == 'pull_request' &&
+      !startsWith(github.head_ref, 'changeset-release/') &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
