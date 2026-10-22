@@ -364,7 +364,7 @@ Keep the following in mind:
   the host.
 
 For production, replace `latest` with a fixed release such as
-`ghcr.io/serviceware/cloud-connector:1.0.2` or with the image digest that you
+`ghcr.io/serviceware/cloud-connector:1.1.0` or with the image digest that you
 validated, so that a restart never changes the version unexpectedly.
 
 > [!NOTE]

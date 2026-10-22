@@ -4,6 +4,16 @@ All notable changes to the Serviceware AI Process Engine - Cloud Connector are
 documented in this file. Releases follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.0 - 2026-10-22
+
+### Added
+
+- Run the Cloud Connector on Node.js 24 instead of Deno. The container image is based on the Node.js 24 `bookworm-slim` image and keeps file access restricted with the Node.js permission model. The configuration format is unchanged. The container now runs as uid 1000 instead of 1993, so mounted configuration files must be readable by uid 1000. Trust an internal certificate authority with `NODE_EXTRA_CA_CERTS` instead of `DENO_CERT`. `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` still apply; `HTTP_PROXY` now also covers HTTPS targets when `HTTPS_PROXY` is unset, and `NO_PROXY` does not accept CIDR ranges. URLs with embedded credentials are no longer accepted for `CLOUD_CONNECTOR_HOST` or OAuth2 issuers.
+
+### Fixed
+
+- Run on Node.js 24.22.1 to stop trusting the compromised eMudhra certificate authorities. In October 2026 the private keys of eight eMudhra intermediate certificate authorities were exposed, so anyone holding them can issue certificates that look valid for any host name. Node.js checks TLS certificates against the root certificates built into its binary and does not check revocation, so earlier Cloud Connector images keep trusting certificates issued with those keys. Node.js 24.22.1 removes three emSign root certificates and rejects certificate chains that contain one of the compromised keys. This protects the connection to the AI Process Engine and to forwarded targets against interception by an attacker who holds one of these keys. Update all deployments to this release. Running the connector outside the container image now requires Node.js 24.22.1 or later.
+
 ## 1.0.2 - 2026-10-06
 
 ### Fixed
