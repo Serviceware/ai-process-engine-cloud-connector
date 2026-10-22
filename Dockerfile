@@ -1,4 +1,4 @@
-FROM node:24.22.0-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 
 LABEL org.opencontainers.image.title="Serviceware AI Process Engine - Cloud Connector" \
     org.opencontainers.image.description="Connects Serviceware AI Process Engine to internal HTTP services" \
