@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -659,4 +659,506 @@ test("YamlForwardingExecutor names the network reason of failed OAuth2 token req
     message: "OAuth2 token request failed: fetch failed (ECONNREFUSED)",
   });
   expect(warnings.flat()).toContain(fetchError);
+});
+
+const oauthRule = `
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: secret
+`;
+
+const itemsFrame = {
+  type: "request" as const,
+  requestId: "request-1",
+  request: { method: "GET" as const, url: "https://internal.example/items" },
+};
+
+async function oauthExecutor(tokenResponses: () => Response, tokenCalls: { count: number }) {
+  return await createYamlForwardingExecutor({
+    config: configFor(oauthRule),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url === "https://auth.example/token") {
+        tokenCalls.count += 1;
+        return Promise.resolve(tokenResponses());
+      }
+      return Promise.resolve(new Response("ok"));
+    }) as Fetcher,
+  });
+}
+
+test("YamlForwardingExecutor sends the OAuth2 token request as a non-redirecting form POST", async () => {
+  const seen: { input: unknown; init: RequestInit | undefined }[] = [];
+  for (const scope of [undefined, "inventory.read"]) {
+    seen.length = 0;
+    const executor = await createYamlForwardingExecutor({
+      config: configFor(oauthRule + (scope ? `      scope: ${scope}\n` : "")),
+      configPath: "test.yml",
+      logger: silentLogger,
+      nextFetch: ((input, init) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url === "https://auth.example/token") {
+          seen.push({ input, init });
+          return Promise.resolve(Response.json({ access_token: "t", expires_in: 60 }));
+        }
+        return Promise.resolve(new Response("ok"));
+      }) as Fetcher,
+    });
+    await executor.execute(itemsFrame);
+
+    expect(seen.length).toStrictEqual(1);
+    expect(seen[0].input).toStrictEqual("https://auth.example/token");
+    expect(seen[0].init?.method).toStrictEqual("POST");
+    expect(seen[0].init?.redirect).toStrictEqual("error");
+    expect(seen[0].init?.headers).toStrictEqual({ "content-type": "application/x-www-form-urlencoded" });
+    expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal);
+    expect(String(seen[0].init?.body)).toStrictEqual(
+      `grant_type=client_credentials&client_id=connector&client_secret=secret${scope ? `&scope=${scope}` : ""}`,
+    );
+  }
+});
+
+test("YamlForwardingExecutor refetches an OAuth2 token within five seconds of expiry", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const calls = { count: 0 };
+    const executor = await oauthExecutor(() => Response.json({ access_token: "t", expires_in: 60 }), calls);
+
+    await executor.execute(itemsFrame);
+    vi.advanceTimersByTime(54_999);
+    await executor.execute(itemsFrame);
+    expect(calls.count).toStrictEqual(1);
+
+    vi.advanceTimersByTime(1);
+    await executor.execute(itemsFrame);
+    expect(calls.count).toStrictEqual(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("YamlForwardingExecutor caches OAuth2 tokens for 300 seconds when expires_in is absent or unusable", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    for (const expiresIn of [undefined, 0, -30, null, "3600", Number.NaN]) {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const calls = { count: 0 };
+      const executor = await oauthExecutor(() => Response.json({ access_token: "t", expires_in: expiresIn }), calls);
+
+      await executor.execute(itemsFrame);
+      vi.advanceTimersByTime(294_999);
+      await executor.execute(itemsFrame);
+      expect(calls.count, `expires_in=${String(expiresIn)} before expiry window`).toStrictEqual(1);
+
+      vi.advanceTimersByTime(1);
+      await executor.execute(itemsFrame);
+      expect(calls.count, `expires_in=${String(expiresIn)} inside expiry window`).toStrictEqual(2);
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("YamlForwardingExecutor keys the shared OAuth2 cache by the interpolated client secret", async () => {
+  const tokenBodies: string[] = [];
+  const cache = createOAuthTokenCache();
+  const config = configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: https://auth.example/token
+      clientId: connector
+      clientSecret: "{{ env.SECRET }}"
+`);
+  const nextFetch = ((input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url === "https://auth.example/token") {
+      tokenBodies.push(String(init?.body));
+      return Promise.resolve(Response.json({ access_token: `token-${tokenBodies.length}`, expires_in: 600 }));
+    }
+    return Promise.resolve(new Response("ok"));
+  }) as Fetcher;
+  const executors = await Promise.all(
+    ["one", "two"].map((SECRET) =>
+      createYamlForwardingExecutor({
+        config,
+        configPath: "test.yml",
+        env: { SECRET },
+        logger: silentLogger,
+        nextFetch,
+        oauthTokenCache: cache,
+      }),
+    ),
+  );
+  for (const executor of [...executors, ...executors]) await executor.execute(itemsFrame);
+  expect(tokenBodies).toStrictEqual([
+    "grant_type=client_credentials&client_id=connector&client_secret=one",
+    "grant_type=client_credentials&client_id=connector&client_secret=two",
+  ]);
+});
+
+test("YamlForwardingExecutor clears the in-flight OAuth2 entry after a failed token request", async () => {
+  const cache = createOAuthTokenCache();
+  let fail = true;
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(oauthRule),
+    configPath: "test.yml",
+    logger: silentLogger,
+    oauthTokenCache: cache,
+    nextFetch: ((input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url !== "https://auth.example/token") return Promise.resolve(new Response("ok"));
+      return Promise.resolve(fail ? new Response(null, { status: 401 }) : Response.json({ access_token: "t" }));
+    }) as Fetcher,
+  });
+  await expect(executor.execute(itemsFrame)).rejects.toMatchObject({
+    code: "TARGET_REQUEST_ERROR",
+    message: "OAuth2 token endpoint returned HTTP 401",
+  });
+  expect(cache.inFlight.size).toStrictEqual(0);
+  expect(cache.tokens.size).toStrictEqual(0);
+
+  fail = false;
+  await executor.execute(itemsFrame);
+  expect(cache.tokens.size).toStrictEqual(1);
+});
+
+test("YamlForwardingExecutor rejects an OAuth2 response whose access_token is not a non-empty string", async () => {
+  for (const accessToken of [123, "", null]) {
+    const executor = await oauthExecutor(() => Response.json({ access_token: accessToken }), { count: 0 });
+    await expect(executor.execute(itemsFrame)).rejects.toMatchObject({
+      code: "TARGET_REQUEST_ERROR",
+      message: "OAuth2 token response does not contain access_token",
+    });
+  }
+});
+
+test("YamlForwardingExecutor adds a Bearer token and replaces inbound authorization", async () => {
+  for (const forwardIncomingCredentials of [false, true]) {
+    let request!: Request;
+    const executor = await createYamlForwardingExecutor({
+      config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    forwardIncomingCredentials: ${forwardIncomingCredentials}
+    headers:
+      set:
+        authorization: Bearer from-header-set
+    auth:
+      type: bearer
+      token: "{{ env.TOKEN }}"
+`),
+      configPath: "test.yml",
+      env: { TOKEN: "static-token" },
+      logger: silentLogger,
+      nextFetch: ((input) => {
+        request = input as Request;
+        return Promise.resolve(new Response("ok"));
+      }) as Fetcher,
+    });
+    await executor.execute({
+      ...itemsFrame,
+      request: { ...itemsFrame.request, headers: { Authorization: ["Bearer caller"] } },
+    });
+    expect(request.headers.get("authorization")).toStrictEqual("Bearer static-token");
+  }
+});
+
+test("YamlForwardingExecutor fails with CONFIG_ERROR when auth values are unset or empty", async () => {
+  for (const env of [{}, { TOKEN: "" }] as Record<string, string>[]) {
+    const executor = await createYamlForwardingExecutor({
+      config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: bearer
+      token: "{{ env.TOKEN }}"
+`),
+      configPath: "test.yml",
+      env,
+      logger: silentLogger,
+      nextFetch: (() => Promise.reject(new Error("must not be called"))) as Fetcher,
+    });
+    await expect(executor.execute(itemsFrame)).rejects.toMatchObject({ name: "RuntimeError", code: "CONFIG_ERROR" });
+  }
+});
+
+test("YamlForwardingExecutor applies header remove, set, and add case-insensitively on request and response", async () => {
+  let request!: Request;
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    headers:
+      remove: [X-Internal]
+      set:
+        X-Mode: replaced
+      add:
+        X-Trace: second
+  response:
+    headers:
+      remove: [X-Secret]
+      set:
+        X-Served-By: connector
+      add:
+        X-Extra: "{{ context.requestId }}"
+`),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) => {
+      request = input as Request;
+      return Promise.resolve(
+        new Response("ok", { headers: { "x-secret": "hide", "x-served-by": "upstream", "x-extra": "kept" } }),
+      );
+    }) as Fetcher,
+  });
+  const response = await executor.execute({
+    ...itemsFrame,
+    request: {
+      ...itemsFrame.request,
+      headers: { "x-internal": ["a"], "x-mode": ["original"], "x-trace": ["first"] },
+    },
+  });
+
+  expect(request.headers.get("x-internal")).toStrictEqual(null);
+  expect(request.headers.get("x-mode")).toStrictEqual("replaced");
+  expect(request.headers.get("x-trace")).toStrictEqual("first, second");
+  expect(response.headers?.["x-secret"]).toBeUndefined();
+  expect(response.headers?.["X-Served-By"]).toStrictEqual(["connector"]);
+  expect(response.headers?.["X-Extra"]).toStrictEqual(["kept", "request-1"]);
+});
+
+test("applyYamlRequestForwardingConfig normalizes header casing and path prefixes", () => {
+  const request = { method: "GET" as const, url: "https://internal.example/users?active=true#frag", headers: {} };
+  const withPrefix = (pathPrefix: string, url = request.url) =>
+    applyYamlRequestForwardingConfig({ pathPrefix }, { ...request, url }, baseContext).url;
+
+  expect(withPrefix("/api")).toStrictEqual("https://internal.example/api/users?active=true#frag");
+  expect(withPrefix("/api/")).toStrictEqual("https://internal.example/api/users?active=true#frag");
+  expect(withPrefix("/")).toStrictEqual(request.url);
+  expect(withPrefix("/api", "https://internal.example")).toStrictEqual("https://internal.example/api/");
+
+  const renamed = applyYamlRequestForwardingConfig(
+    { headers: { add: { "X-Trace": "b" }, set: { "x-mode": "new" } } },
+    { ...request, headers: { "x-trace": ["a"], "X-MODE": ["old"] } },
+    baseContext,
+  );
+  expect(renamed.headers).toStrictEqual({ "X-Trace": ["a", "b"], "x-mode": ["new"] });
+});
+
+test("YamlForwardingExecutor denies a path prefix that moves the URL outside the matched rules", async () => {
+  const calls: string[] = [];
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/orders$
+  request:
+    pathPrefix: /admin
+`),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) => {
+      calls.push((input as Request).url);
+      return Promise.resolve(new Response("ok"));
+    }) as Fetcher,
+  });
+  await expect(
+    executor.execute({ ...itemsFrame, request: { method: "GET", url: "https://internal.example/orders" } }),
+  ).rejects.toMatchObject({ code: "OUTBOUND_URL_NOT_ALLOWED" });
+  expect(calls).toStrictEqual([]);
+});
+
+test("YamlForwardingExecutor rejects requested URLs that are relative or not HTTP(S)", async () => {
+  const executor = await createYamlForwardingExecutor({
+    config: configFor("- target: ^.*$"),
+    configPath: "/config/cloud-connector.yml",
+    logger: silentLogger,
+    nextFetch: (() => Promise.reject(new Error("must not be called"))) as Fetcher,
+  });
+  await expect(executor.execute({ ...itemsFrame, request: { method: "GET", url: "/items" } })).rejects.toMatchObject({
+    code: "OUTBOUND_URL_NOT_ALLOWED",
+    message: "Requested URL must be absolute in /config/cloud-connector.yml",
+    cause: expect.any(TypeError),
+  });
+  await expect(
+    executor.execute({ ...itemsFrame, request: { method: "GET", url: "ftp://internal.example/items" } }),
+  ).rejects.toMatchObject({
+    code: "OUTBOUND_URL_NOT_ALLOWED",
+    message: "Requested URL must use HTTP or HTTPS in /config/cloud-connector.yml",
+  });
+});
+
+test("YamlForwardingExecutor sends no body for GET and HEAD and honors the method list of the last matching rule", async () => {
+  const seen: { method: string; body: string }[] = [];
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/.*$
+  methods: [GET]
+- target: ^https://internal[.]example/items$
+  methods: [HEAD, POST]
+`),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: (async (input) => {
+      const request = input as Request;
+      seen.push({ method: request.method, body: await request.text() });
+      return new Response(null, { status: 204 });
+    }) as Fetcher,
+  });
+  const frame = (method: "GET" | "HEAD" | "POST") => ({
+    ...itemsFrame,
+    request: { method, url: "https://internal.example/items", body: "payload" },
+  });
+
+  await executor.execute(frame("HEAD"));
+  await executor.execute(frame("POST"));
+  await expect(executor.execute(frame("GET"))).rejects.toMatchObject({ code: "METHOD_NOT_ALLOWED" });
+  expect(seen).toStrictEqual([
+    { method: "HEAD", body: "" },
+    { method: "POST", body: "payload" },
+  ]);
+  await expect(
+    executor.execute({ ...itemsFrame, request: { method: "GET", url: "https://internal.example/other", body: "x" } }),
+  ).resolves.toMatchObject({ statusCode: 204 });
+  expect(seen.at(-1)).toStrictEqual({ method: "GET", body: "" });
+});
+
+test("YamlForwardingExecutor reports TIMEOUT when the upstream outlives the effective timeout", async () => {
+  const executor = await createYamlForwardingExecutor({
+    config: configFor("- target: ^https://internal[.]example/.*$\n  timeout: 60000"),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) =>
+      new Promise((_, reject) => {
+        (input as Request).signal.addEventListener("abort", () => reject((input as Request).signal.reason));
+      })) as Fetcher,
+  });
+  await expect(
+    executor.execute({ ...itemsFrame, request: { ...itemsFrame.request, timeoutSeconds: 0.05 } }),
+  ).rejects.toMatchObject({
+    name: "RuntimeError",
+    code: "TIMEOUT",
+    message: "Forwarding request timed out after 50ms",
+    cause: expect.objectContaining({ name: "TimeoutError" }),
+  });
+});
+
+test("YamlForwardingExecutor enforces the response size limit by declared length and while streaming", async () => {
+  const run = async (response: () => Response, maxResponseBodyBytes = 4) => {
+    const executor = await createYamlForwardingExecutor({
+      config: { ...configFor("- target: ^https://internal[.]example/.*$"), maxResponseBodyBytes },
+      configPath: "test.yml",
+      logger: silentLogger,
+      nextFetch: (() => Promise.resolve(response())) as Fetcher,
+    });
+    return await executor.execute(itemsFrame);
+  };
+  const streamOf = (...chunks: Uint8Array[]) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+  const encoder = new TextEncoder();
+
+  await expect(run(() => new Response("1234"))).resolves.toMatchObject({ body: "1234" });
+  await expect(run(() => new Response("12345", { headers: { "content-length": "5" } }))).rejects.toMatchObject({
+    code: "RESPONSE_TOO_LARGE",
+    message: "Target response exceeds the 4-byte limit",
+  });
+  await expect(run(() => new Response(streamOf(encoder.encode("123"), encoder.encode("45"))))).rejects.toMatchObject({
+    code: "RESPONSE_TOO_LARGE",
+  });
+  await expect(run(() => new Response(streamOf(encoder.encode("ääh"))))).rejects.toMatchObject({
+    code: "RESPONSE_TOO_LARGE",
+  });
+  await expect(run(() => new Response("ää"))).resolves.toMatchObject({ body: "ää" });
+});
+
+test("YamlForwardingExecutor decodes multi-byte characters split across chunks and maps empty bodies to null", async () => {
+  const bytes = new TextEncoder().encode("ä");
+  const executor = await createYamlForwardingExecutor({
+    config: configFor("- target: ^https://internal[.]example/.*$"),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: (() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes.slice(0, 1));
+              controller.enqueue(bytes.slice(1));
+              controller.close();
+            },
+          }),
+        ),
+      )) as Fetcher,
+  });
+  expect((await executor.execute(itemsFrame)).body).toStrictEqual("ä");
+
+  const empty = await createYamlForwardingExecutor({
+    config: configFor("- target: ^https://internal[.]example/.*$"),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: (() => Promise.resolve(new Response(""))) as Fetcher,
+  });
+  expect((await empty.execute(itemsFrame)).body).toStrictEqual(null);
+  const noBody = await createYamlForwardingExecutor({
+    config: configFor("- target: ^https://internal[.]example/.*$"),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: (() => Promise.resolve(new Response(null, { status: 204 }))) as Fetcher,
+  });
+  expect((await noBody.execute(itemsFrame)).body).toStrictEqual(null);
+});
+
+test("mergeForwardingConfigs carries unset values forward and copies the methods array", () => {
+  const merged = mergeForwardingConfigs([
+    {
+      target: "a",
+      request: { pathPrefix: "/one", forwardIncomingCredentials: true, headers: { set: { "x-a": "1" } } },
+      response: { headers: { set: { "x-r": "1" } } },
+    },
+    {
+      target: "b",
+      timeout: 2000,
+      request: { headers: { set: { "X-B": "2" } } },
+      response: { headers: { set: { "x-s": "2" } } },
+    },
+    { target: "c", request: { pathPrefix: "/three" } },
+  ]);
+  expect(merged.target).toStrictEqual("c");
+  expect(merged.timeout).toStrictEqual(2000);
+  expect(merged.methods).toBeUndefined();
+  expect(merged.request).toMatchObject({ pathPrefix: "/three", forwardIncomingCredentials: true });
+  expect(merged.request?.headers).toStrictEqual({ set: { "x-a": "1", "X-B": "2" } });
+  expect(merged.response?.headers).toStrictEqual({ set: { "x-r": "1", "x-s": "2" } });
+
+  const methods = ["GET"];
+  const copied = mergeForwardingConfigs([{ target: "a", methods }]);
+  copied.methods?.push("POST");
+  expect(methods).toStrictEqual(["GET"]);
+});
+
+test("interpolate supports both env syntaxes and rejects unknown or nested expressions", () => {
+  expect(interpolate("{{env:API_TOKEN}}|{{ env.TENANT_ID }}|{{context.startedAt}}", baseContext)).toStrictEqual(
+    "secret-token|tenant-123|2024-01-01T00:00:00.000Z",
+  );
+  for (const expression of ["env.A.B", "context.nope", "context", "env", "other.value"]) {
+    expect(() => interpolate(`{{ ${expression} }}`, baseContext)).toThrow(
+      expect.objectContaining({
+        code: "CONFIG_ERROR",
+        message: `Unsupported forwarding interpolation expression: ${expression}`,
+      }),
+    );
+  }
+  expect(interpolate("no placeholders", baseContext)).toStrictEqual("no placeholders");
 });
