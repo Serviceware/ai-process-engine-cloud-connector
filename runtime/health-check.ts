@@ -1,3 +1,5 @@
+import { describeError } from "./runtime-error.ts";
+
 export type HealthFetch = typeof fetch;
 
 /**
@@ -7,8 +9,11 @@ export type HealthFetch = typeof fetch;
 export async function checkHealth(port = 8080, fetcher: HealthFetch = fetch): Promise<number> {
   try {
     const response = await fetcher(`http://localhost:${port}/health`);
-    return response.ok ? 0 : 1;
-  } catch {
+    if (response.ok) return 0;
+    console.error(`Health check failed: HTTP ${response.status}`);
+    return 1;
+  } catch (error) {
+    console.error(`Health check failed: ${describeError(error)}`);
     return 1;
   }
 }

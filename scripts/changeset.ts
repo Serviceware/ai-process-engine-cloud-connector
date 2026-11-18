@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { createInterface, type Interface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline";
 import { promisify } from "node:util";
 
 export type Bump = "patch" | "minor" | "major";
@@ -92,12 +92,12 @@ async function addChangeset(args: string[]): Promise<void> {
       output: process.stdout,
     });
     try {
-      const selected =
-        (await ask(readline, "Release impact (patch, minor, or major) [patch]: ")).trim().toLowerCase() || "patch";
+      const ask = answerQueue(readline);
+      const selected = (await ask("Release impact (patch, minor, or major) [patch]: ")).trim().toLowerCase() || "patch";
       if (selected !== "patch" && selected !== "minor" && selected !== "major") {
         throw new Error("Release impact must be patch, minor, or major");
       }
-      const summary = (await ask(readline, "User-facing summary: ")).trim();
+      const summary = (await ask("User-facing summary: ")).trim();
       if (!summary) throw new Error("A user-facing summary is required");
       content = `---\n"${packageName}": ${selected}\n---\n\n${summary}\n`;
     } finally {
@@ -110,14 +110,45 @@ async function addChangeset(args: string[]): Promise<void> {
   console.log(`Created ${path}`);
 }
 
-/** `question()` never settles once stdin has ended. */
-async function ask(readline: Interface, query: string): Promise<string> {
-  const closed = new Promise<undefined>((resolve) => readline.once("close", () => resolve(undefined)));
-  const answer = await Promise.race([readline.question(query), closed]);
-  if (answer === undefined) {
-    throw new Error(`Standard input closed before answering "${query.trim()}"; run interactively or pass --empty`);
-  }
-  return answer;
+/** Lines that arrive before their question is asked wait in the queue for the next question. */
+function answerQueue(readline: Interface): (query: string) => Promise<string> {
+  const queued: string[] = [];
+  let closed = false;
+  let wake: (() => void) | undefined;
+  const notify = (): void => {
+    const resume = wake;
+    wake = undefined;
+    resume?.();
+  };
+  readline.on("line", (line) => {
+    queued.push(line);
+    notify();
+  });
+  readline.once("close", () => {
+    closed = true;
+    notify();
+  });
+
+  const closedError = (query: string): Error =>
+    new Error(`Standard input closed before answering "${query.trim()}"; run interactively or pass --empty`);
+
+  return async (query) => {
+    if (queued.length > 0) {
+      const answer = queued.shift() as string;
+      process.stdout.write(`${query}${answer}\n`);
+      return answer;
+    }
+    if (closed) throw closedError(query);
+
+    readline.setPrompt(query);
+    readline.prompt();
+    while (queued.length === 0 && !closed) {
+      await new Promise<void>((resolve) => (wake = resolve));
+    }
+    const answer = queued.shift();
+    if (answer === undefined) throw closedError(query);
+    return answer;
+  };
 }
 
 async function runGit(args: string[]): Promise<string> {
@@ -192,19 +223,20 @@ async function versionRelease(): Promise<void> {
       throw new Error("package.json must contain a string version");
     }
     const version = bumpVersion(packageJson.version, bump);
-    packageJson.version = version;
-    await writeJson("package.json", packageJson);
 
     const changelogPath = "CHANGELOG.md";
     const changelog = await readFile(changelogPath, "utf8");
-    const releaseIndex = changelog.indexOf("\n## ");
+    const releaseIndex = changelog.search(/^## /m);
     if (releaseIndex === -1) {
       throw new Error(`${changelogPath} must contain an existing release`);
     }
     const release = renderRelease(version, changesets);
     const preamble = changelog.slice(0, releaseIndex).trimEnd();
     const existingReleases = changelog.slice(releaseIndex).trim();
-    const updated = `${preamble}\n\n${release}\n\n${existingReleases}\n`;
+    const updated = `${preamble ? `${preamble}\n\n` : ""}${release}\n\n${existingReleases}\n`;
+
+    packageJson.version = version;
+    await writeJson("package.json", packageJson);
     await writeFile(changelogPath, updated);
     console.log(`Prepared Cloud Connector ${version}`);
   } else {

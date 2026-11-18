@@ -27,9 +27,12 @@ export async function serve(handler: FetchHandler, options: ServeOptions): Promi
       return;
     }
     respond(handler, incoming, outgoing).catch((error) => {
-      options.logger.error(`HTTP request ${incoming.method} ${incoming.url} failed`, error);
-      if (!outgoing.headersSent) outgoing.writeHead(500);
-      outgoing.end();
+      options.logger.error(`HTTP request ${incoming.method} ${incoming.url?.split("?", 1)[0]} failed`, error);
+      if (outgoing.headersSent) {
+        outgoing.destroy(error);
+        return;
+      }
+      outgoing.writeHead(500).end();
     });
   });
   server.on("connect", (_request, socket) => {

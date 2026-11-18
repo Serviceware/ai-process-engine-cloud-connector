@@ -328,3 +328,71 @@ test("generateAccessToken does not start fetching with an already aborted extern
     }),
   ).rejects.toBe(reason);
 });
+
+test("generateAccessToken rejects an https host with an http issuer before sending credentials", async () => {
+  let calls = 0;
+  await expect(
+    generateAccessToken({
+      ...credentials,
+      fetcher: () => {
+        calls++;
+        return Promise.resolve(Response.json({ auth: { issuer: "http://idp.example/realms/r" } }));
+      },
+    }),
+  ).rejects.toThrow("Authentication issuer must use https: when the Cloud host uses https: (got http://idp.example)");
+  expect(calls).toStrictEqual(1);
+});
+
+test("generateAccessToken rejects issuers with schemes other than http or https", async () => {
+  let calls = 0;
+  await expect(
+    generateAccessToken({
+      ...credentials,
+      fetcher: () => {
+        calls++;
+        return Promise.resolve(Response.json({ auth: { issuer: "ftp://idp.example/realms/r" } }));
+      },
+    }),
+  ).rejects.toThrow("Authentication issuer must use http: or https: (got ftp://idp.example)");
+  expect(calls).toStrictEqual(1);
+});
+
+test("generateAccessToken accepts an http issuer when the host uses http", async () => {
+  const urls: string[] = [];
+  const accessToken = await generateAccessToken({
+    ...credentials,
+    host: "http://127.0.0.1:8080",
+    fetcher: (input) => {
+      urls.push(input.toString());
+      return Promise.resolve(
+        urls.length === 1
+          ? Response.json({ auth: { issuer: "http://127.0.0.1:9000/realms/r" } })
+          : Response.json({ access_token: "t" }),
+      );
+    },
+  });
+
+  expect(accessToken).toStrictEqual("t");
+  expect(urls).toStrictEqual([
+    "http://127.0.0.1:8080/.well-known",
+    "http://127.0.0.1:9000/realms/r/protocol/openid-connect/token",
+  ]);
+});
+
+test("generateAccessToken rejects an issuer that is not a valid URL without echoing it", async () => {
+  let calls = 0;
+  const error = await generateAccessToken({
+    ...credentials,
+    fetcher: () => {
+      calls++;
+      return Promise.resolve(Response.json({ auth: { issuer: "not a url" } }));
+    },
+  }).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toStrictEqual(
+    "Authentication issuer in well-known configuration is not a valid URL",
+  );
+  expect((error as Error).cause).toBeInstanceOf(TypeError);
+  expect(calls).toStrictEqual(1);
+});

@@ -1162,3 +1162,120 @@ test("interpolate supports both env syntaxes and rejects unknown or nested expre
   }
   expect(interpolate("no placeholders", baseContext)).toStrictEqual("no placeholders");
 });
+
+function mergedRequestHeaders(rules: HeaderRule[], inbound: Record<string, string[]>) {
+  const merged = mergeForwardingConfigs(rules.map((headers) => ({ target: "t", request: { headers } })));
+  return applyYamlRequestForwardingConfig(
+    merged.request ?? {},
+    { method: "GET", url: "https://internal.example/", headers: inbound },
+    baseContext,
+  ).headers;
+}
+
+function mergedResponseHeaders(rules: HeaderRule[], inbound: Record<string, string[]>) {
+  const merged = mergeForwardingConfigs(rules.map((headers) => ({ target: "t", response: { headers } })));
+  return applyYamlResponseForwardingConfig(merged.response ?? {}, { statusCode: 200, headers: inbound }, baseContext)
+    .headers;
+}
+
+type HeaderRule = NonNullable<YamlRequestForwardingConfig["headers"]>;
+
+test.each([
+  ["request", mergedRequestHeaders],
+  ["response", mergedResponseHeaders],
+] as const)("mergeForwardingConfigs keeps remove -> set -> add semantics across rules on %s headers", (_, merge) => {
+  expect(merge([{ set: { "x-a": "1" }, add: { "x-a": "2" } }], { "x-a": ["in"] })).toStrictEqual({ "x-a": ["1", "2"] });
+  expect(merge([{ remove: ["x-a"] }, { add: { "x-a": "v" } }], { "x-a": ["in"] })).toStrictEqual({ "x-a": ["v"] });
+  expect(merge([{ add: { "x-a": "1" } }, { set: { "X-A": "2" } }], { "x-a": ["in"] })).toStrictEqual({
+    "X-A": ["2"],
+  });
+  expect(merge([{ set: { "x-a": "1" } }, { set: { "x-a": "2" } }], { "x-a": ["in"] })).toStrictEqual({
+    "x-a": ["2"],
+  });
+  expect(merge([{ set: { "x-a": "1" }, add: { "x-a": "2" } }, { remove: ["X-A"] }], { "x-a": ["in"] })).toStrictEqual(
+    {},
+  );
+  expect(merge([{ add: { "x-a": "1" } }, { add: { "x-a": ["2", "3"] } }], { "x-a": ["in"] })).toStrictEqual({
+    "x-a": ["in", "1", "2", "3"],
+  });
+});
+
+function idpExecutor(issuerYaml: string, tokenResponse: () => Response, tokenCalls: string[] = []) {
+  return createYamlForwardingExecutor({
+    config: configFor(`
+- target: ^https://internal[.]example/.*$
+  request:
+    auth:
+      type: oauth2
+      issuer: "${issuerYaml}"
+      clientId: connector
+      clientSecret: secret
+`),
+    configPath: "test.yml",
+    env: {
+      ISSUER: "https://idp.example/token",
+      BAD_SCHEME: "ftp://idp.example/token",
+      BAD_FRAGMENT: "https://idp.example/token#secret-frag",
+      BAD_CREDS: "https://user:secret-pw@idp.example/token",
+      BAD_REL: "secret-relative",
+    },
+    logger: silentLogger,
+    nextFetch: ((input: string | URL | Request) => {
+      const url = new Request(input).url;
+      if (url.startsWith("https://idp.example/")) {
+        tokenCalls.push(url);
+        return Promise.resolve(tokenResponse());
+      }
+      return Promise.resolve(new Response("ok"));
+    }) as Fetcher,
+  });
+}
+
+const idpFrame = {
+  type: "request" as const,
+  requestId: "request-1",
+  request: { method: "GET" as const, url: "https://internal.example/items" },
+};
+
+test.each(["BAD_SCHEME", "BAD_FRAGMENT", "BAD_CREDS", "BAD_REL"])(
+  "OAuth2 issuer interpolated from %s is validated before any token request",
+  async (name) => {
+    const tokenCalls: string[] = [];
+    const executor = await idpExecutor(`{{env.${name}}}`, () => Response.json({ access_token: "t" }), tokenCalls);
+    const error = await executor.execute(idpFrame).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RuntimeError);
+    expect((error as RuntimeError).code).toStrictEqual("CONFIG_ERROR");
+    expect((error as RuntimeError).message).toContain("issuer");
+    expect((error as RuntimeError).message).not.toMatch(/secret|idp\.example/);
+    expect(tokenCalls).toStrictEqual([]);
+  },
+);
+
+test("OAuth2 issuer interpolated from a valid value is used", async () => {
+  const tokenCalls: string[] = [];
+  const executor = await idpExecutor("{{env.ISSUER}}", () => Response.json({ access_token: "t" }), tokenCalls);
+  await executor.execute(idpFrame);
+  expect(tokenCalls).toStrictEqual(["https://idp.example/token"]);
+});
+
+test("OAuth2 token response that is not JSON fails with TARGET_REQUEST_ERROR and keeps the cause", async () => {
+  const executor = await idpExecutor("https://idp.example/token", () => new Response("<html>nope"));
+  const error = await executor.execute(idpFrame).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(RuntimeError);
+  expect((error as RuntimeError).code).toStrictEqual("TARGET_REQUEST_ERROR");
+  expect((error as RuntimeError).message).toStrictEqual("OAuth2 token response is not valid JSON");
+  expect((error as RuntimeError).cause).toBeInstanceOf(SyntaxError);
+});
+
+test.each(["null", "42", '"token"', "[]"])(
+  "OAuth2 token response %s is treated as missing access_token",
+  async (body) => {
+    const executor = await idpExecutor("https://idp.example/token", () => new Response(body));
+    await expect(executor.execute(idpFrame)).rejects.toThrow(
+      expect.objectContaining({
+        code: "TARGET_REQUEST_ERROR",
+        message: "OAuth2 token response does not contain access_token",
+      }),
+    );
+  },
+);
