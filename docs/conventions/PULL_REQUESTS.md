@@ -18,12 +18,15 @@ the released version:
 pnpm run changeset --empty
 ```
 
-Dependabot pull requests are exempt from the Changeset check. Add a release
-Changeset to one only if the update should produce a release.
+A Dependabot pull request needs a Changeset only when it changes the
+`Dockerfile`, `.node-version`, or the `dependencies` in `package.json`. The
+Dependabot release preparation workflow writes it; see
+[Repository checks](../CI.md#dependabot).
 
 Do not edit the package version, changelog release heading, Git tags, or
-maintained image tags manually. The release workflow consumes Changesets and
-updates those artifacts.
+maintained image tags manually. The release pull request workflow consumes
+Changesets and updates those artifacts; CI on `main` tags and publishes the
+release after that pull request is merged.
 
 Before opening or updating a pull request:
 

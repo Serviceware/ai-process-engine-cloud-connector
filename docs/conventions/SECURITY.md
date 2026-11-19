@@ -54,3 +54,8 @@ resolution (`pnpm install --frozen-lockfile`) in CI and the container build.
 `pnpm-workspace.yaml` sets `minimumReleaseAge` to seven days, so pnpm rejects
 package versions published more recently; do not lower it or add exclusions
 without a reviewed reason.
+
+Pin the `Dockerfile` base image by tag and digest so builds are reproducible and
+Dependabot proposes rebuilt base images. Release runtime and base image updates
+promptly as patch releases; the weekly image scan reports fixable high and
+critical vulnerabilities in the `latest` released image.
