@@ -113,6 +113,69 @@ test("serve logs the request line and the failure when the handler fails", async
   }
 });
 
+test("serve logs the request path without its query string", async () => {
+  errors.length = 0;
+  const abortController = new AbortController();
+  const failure = new Error("handler failed");
+  const server = await serve(
+    () => {
+      throw failure;
+    },
+    {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger,
+    },
+  );
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    await fetch(`http://127.0.0.1:${port}/broken?access_token=secret`);
+
+    expect(errors).toStrictEqual([["[cloud-connector] ERROR", "HTTP request GET /broken failed", failure]]);
+  } finally {
+    abortController.abort();
+  }
+});
+
+test("serve fails the client response when the body fails after its first chunk", async () => {
+  errors.length = 0;
+  const abortController = new AbortController();
+  const failure = new Error("body failed");
+  const encoder = new TextEncoder();
+  let pulls = 0;
+  const server = await serve(
+    () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            pulls += 1;
+            if (pulls === 1) controller.enqueue(encoder.encode("partial"));
+            else controller.error(failure);
+          },
+        }),
+      ),
+    {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger,
+    },
+  );
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+
+    await expect(fetch(`http://127.0.0.1:${port}/stream`).then((response) => response.text())).rejects.toThrow(
+      TypeError,
+    );
+    expect(errors).toStrictEqual([["[cloud-connector] ERROR", "HTTP request GET /stream failed", failure]]);
+  } finally {
+    abortController.abort();
+  }
+});
+
 test("serve rejects when the port cannot be bound", async () => {
   const abortController = new AbortController();
   const options = {

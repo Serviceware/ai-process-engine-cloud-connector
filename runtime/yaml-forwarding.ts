@@ -1,10 +1,11 @@
-import type {
-  AuthConfig,
-  ConnectorConfig,
-  ForwardingConfig,
-  HeaderForwardingConfig,
-  RequestForwardingConfig,
-  ResponseForwardingConfig,
+import {
+  requireOAuthIssuerUrl,
+  type AuthConfig,
+  type ConnectorConfig,
+  type ForwardingConfig,
+  type HeaderForwardingConfig,
+  type RequestForwardingConfig,
+  type ResponseForwardingConfig,
 } from "./config.ts";
 import type { ProtocolExecutor } from "./connector.ts";
 import type {
@@ -228,7 +229,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     context: YamlValueContext,
     timeout: number,
   ): Promise<string> {
-    const issuer = requiredInterpolated(auth.issuer, context, "issuer");
+    const issuer = validatedIssuer(requiredInterpolated(auth.issuer, context, "issuer"));
     const clientId = requiredInterpolated(auth.clientId, context, "clientId");
     const clientSecret = requiredInterpolated(auth.clientSecret, context, "clientSecret");
     const scope = auth.scope ? requiredInterpolated(auth.scope, context, "scope") : undefined;
@@ -281,8 +282,13 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
       await response.body?.cancel();
       throw new RuntimeError("TARGET_REQUEST_ERROR", `OAuth2 token endpoint returned HTTP ${response.status}`);
     }
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (typeof payload.access_token !== "string" || !payload.access_token) {
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new RuntimeError("TARGET_REQUEST_ERROR", "OAuth2 token response is not valid JSON", { cause: error });
+    }
+    if (!isRecord(payload) || typeof payload.access_token !== "string" || !payload.access_token) {
       throw new RuntimeError("TARGET_REQUEST_ERROR", "OAuth2 token response does not contain access_token");
     }
     const expiresIn =
@@ -295,6 +301,18 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     });
     return payload.access_token;
   }
+}
+
+function validatedIssuer(issuer: string): string {
+  try {
+    return requireOAuthIssuerUrl(issuer, "OAuth2 issuer");
+  } catch (error) {
+    throw new RuntimeError("CONFIG_ERROR", (error as Error).message);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function createYamlForwardingExecutor(options: YamlForwardingExecutorOptions): Promise<YamlForwardingExecutor> {
@@ -382,47 +400,31 @@ function mergeHeaderConfigs(
   next: HeaderForwardingConfig | undefined,
 ): HeaderForwardingConfig | undefined {
   if (!current && !next) return undefined;
-  const operations = new Map<
-    string,
-    {
-      kind: "add" | "remove" | "set";
-      name: string;
-      value?: string | string[];
-    }
-  >();
+  const states = new Map<string, { name: string; reset: boolean; set?: string; adds: string[] }>();
+  const stateFor = (name: string) => {
+    const key = name.toLowerCase();
+    const state = states.get(key) ?? { name, reset: false, adds: [] };
+    state.name = name;
+    states.set(key, state);
+    return state;
+  };
   for (const config of [current, next]) {
     if (!config) continue;
     for (const name of config.remove ?? []) {
-      operations.set(name.toLowerCase(), { kind: "remove", name });
+      Object.assign(stateFor(name), { reset: true, set: undefined, adds: [] });
     }
     for (const [name, value] of Object.entries(config.set ?? {})) {
-      operations.set(name.toLowerCase(), { kind: "set", name, value });
+      Object.assign(stateFor(name), { reset: true, set: String(value), adds: [] });
     }
     for (const [name, value] of Object.entries(config.add ?? {})) {
-      const key = name.toLowerCase();
-      const previous = operations.get(key);
-      const values = Array.isArray(value) ? value : [value];
-      operations.set(key, {
-        kind: "add",
-        name,
-        value:
-          previous?.kind === "add"
-            ? [...(Array.isArray(previous.value) ? previous.value : [previous.value ?? ""]), ...values]
-            : values,
-      });
+      stateFor(name).adds.push(...(Array.isArray(value) ? value : [value]));
     }
   }
   const result: HeaderForwardingConfig = {};
-  for (const operation of operations.values()) {
-    if (operation.kind === "remove") {
-      (result.remove ??= []).push(operation.name);
-    } else {
-      if (operation.kind === "add") {
-        (result.add ??= {})[operation.name] = operation.value ?? "";
-      } else {
-        (result.set ??= {})[operation.name] = String(operation.value ?? "");
-      }
-    }
+  for (const state of states.values()) {
+    if (state.reset && state.set === undefined) (result.remove ??= []).push(state.name);
+    if (state.set !== undefined) (result.set ??= {})[state.name] = state.set;
+    if (state.adds.length > 0) (result.add ??= {})[state.name] = state.adds;
   }
   return result;
 }

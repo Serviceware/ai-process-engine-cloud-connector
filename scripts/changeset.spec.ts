@@ -116,6 +116,19 @@ test("changeset add writes a release changeset from the answers", async () => {
   });
 });
 
+test("changeset add keeps answers that arrive in the same chunk", async () => {
+  await withWorkspace(async (root) => {
+    const result = await runChangeset(root, ["add"], ["minor", "Add a feature."], { chunked: true });
+
+    expect(result.code).toStrictEqual(0);
+    const created = await changesetFiles(root);
+    expect(created).toHaveLength(1);
+    expect(await readFile(join(root, ".changeset", created[0]), "utf8")).toStrictEqual(
+      '---\n"@serviceware/cloud-connector": minor\n---\n\nAdd a feature.\n',
+    );
+  });
+});
+
 test("changeset add defaults the release impact to patch", async () => {
   await withWorkspace(async (root) => {
     const result = await runChangeset(root, ["add"], ["", "Fix retry."]);
@@ -313,6 +326,26 @@ test("changeset version requires an existing release in the changelog", async ()
 
     expect(result.code).toStrictEqual(1);
     expect(result.stderr).toContain("CHANGELOG.md must contain an existing release");
+    expect(await readFile(join(root, "package.json"), "utf8")).toStrictEqual(packageJson);
+    expect(await readFile(join(root, "CHANGELOG.md"), "utf8")).toStrictEqual("# Changelog\n");
+    expect(await changesetFiles(root)).toStrictEqual(["a.md"]);
+  });
+});
+
+test("changeset version inserts the release before a changelog that starts with a release", async () => {
+  await withWorkspace(async (root) => {
+    await writeFile(join(root, "CHANGELOG.md"), "## 1.2.3 - 2026-09-14\n\n- old\n");
+    await writeChangeset(root, "a.md", '---\n"@serviceware/cloud-connector": minor\n---\n\nAdd export.\n');
+
+    const result = await runChangeset(root, ["version"]);
+
+    expect(result.code).toStrictEqual(0);
+    const updatedChangelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
+    expect(updatedChangelog.replace(/\d{4}-\d{2}-\d{2}/, "<date>")).toStrictEqual(
+      ["## 1.3.0 - <date>", "", "### Added", "", "- Add export.", "", "## 1.2.3 - 2026-09-14", "", "- old", ""].join(
+        "\n",
+      ),
+    );
   });
 });
 
@@ -327,7 +360,12 @@ test("changeset prints usage for an unknown command", async () => {
 
 type RunResult = { code: number | null; stdout: string; stderr: string };
 
-async function runChangeset(cwd: string, args: string[], answers: string[] = []): Promise<RunResult> {
+async function runChangeset(
+  cwd: string,
+  args: string[],
+  answers: string[] = [],
+  { chunked = false }: { chunked?: boolean } = {},
+): Promise<RunResult> {
   const child = spawn(process.execPath, [changesetScript, ...args], {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
@@ -339,15 +377,16 @@ async function runChangeset(cwd: string, args: string[], answers: string[] = [])
   let answeredAt = -1;
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
     stdout += chunk;
-    // One answer per prompt: piped lines that arrive before a question is asked are dropped.
-    if (answered < answers.length && stdout.endsWith(": ") && stdout.length !== answeredAt) {
+    // Answers one prompt at a time, as an interactive user does.
+    if (!chunked && answered < answers.length && stdout.endsWith(": ") && stdout.length !== answeredAt) {
       answeredAt = stdout.length;
       child.stdin.write(`${answers[answered++]}\n`);
       if (answered === answers.length) child.stdin.end();
     }
   });
   child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-  if (answers.length === 0) child.stdin.end();
+  if (chunked) child.stdin.end(answers.map((answer) => `${answer}\n`).join(""));
+  else if (answers.length === 0) child.stdin.end();
 
   const [code] = await once(child, "close");
   return { code, stdout, stderr };

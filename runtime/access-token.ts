@@ -43,7 +43,19 @@ export async function generateAccessToken(options: AccessTokenOptions): Promise<
   if (!authEndpoint) {
     throw new Error("Authentication endpoint not found in well-known configuration.");
   }
-  const issuer = new URL(authEndpoint);
+  let issuer: URL;
+  try {
+    issuer = new URL(authEndpoint);
+  } catch (cause) {
+    throw new Error("Authentication issuer in well-known configuration is not a valid URL", { cause });
+  }
+  const issuerOrigin = `${issuer.protocol}//${issuer.host}`;
+  if (issuer.protocol !== "https:" && issuer.protocol !== "http:") {
+    throw new Error(`Authentication issuer must use http: or https: (got ${issuerOrigin})`);
+  }
+  if (new URL(options.host).protocol === "https:" && issuer.protocol !== "https:") {
+    throw new Error(`Authentication issuer must use https: when the Cloud host uses https: (got ${issuerOrigin})`);
+  }
   if (issuer.username || issuer.password || issuer.search || issuer.hash) {
     throw new Error("Authentication issuer must not contain credentials, query parameters, or a fragment.");
   }

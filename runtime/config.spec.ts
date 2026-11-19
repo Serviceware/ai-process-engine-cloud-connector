@@ -381,6 +381,15 @@ test("parseVolumeConfig rejects OAuth2 issuers that are not absolute http(s) URL
   });
 });
 
+test("parseVolumeConfig rejects OAuth2 issuers with a fragment but allows a query", () => {
+  expect(() => parseRule(oauth2Rule("https://idp.example/token#frag"))).toThrow(
+    "forwarding[0].request.auth.issuer must not contain a fragment",
+  );
+  expect(parseRule(oauth2Rule("https://idp.example/token?p=policy")).forwarding[0].request?.auth).toMatchObject({
+    issuer: "https://idp.example/token?p=policy",
+  });
+});
+
 test("parseVolumeConfig validates authentication shapes and interpolation", () => {
   const cases: [string, string][] = [
     ["    request:\n      auth:\n        type: digest", "request.auth.type must be one of: basic, bearer, oauth2"],

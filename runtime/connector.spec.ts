@@ -377,6 +377,47 @@ test("ConnectorRuntime drain counts requests that fail as finished", async () =>
   expect(await attachment.drain(1_000)).toStrictEqual(true);
 });
 
+test("ConnectorRuntime logs when a draining rejection cannot be sent", async () => {
+  const errors: unknown[][] = [];
+  const socket = new FakeSocket();
+  socket.send = () => {
+    throw new Error("socket closed");
+  };
+  const attachment = createRuntime({ error: (...data: unknown[]) => void errors.push(data) }).attachWebSocket(
+    socket as unknown as WebSocket,
+  );
+  await attachment.drain(10);
+
+  socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("late")) }));
+  await nextTick();
+
+  expect(errors).toHaveLength(1);
+  expect(errors[0][0]).toStrictEqual("Failed to reject draining request late");
+  expect(errors[0][1]).toEqual(expect.objectContaining({ message: "socket closed" }));
+});
+
+test("ConnectorRuntime logs when a concurrency rejection cannot be sent", async () => {
+  const errors: unknown[][] = [];
+  const socket = new FakeSocket();
+  socket.send = () => {
+    throw new Error("socket closed");
+  };
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: { execute: () => new Promise(() => undefined) },
+    logger: { ...silentLogger, error: (...data: unknown[]) => void errors.push(data) },
+    maximumConcurrentRequests: 1,
+  });
+  runtime.attachWebSocket(socket as unknown as WebSocket);
+
+  socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("stuck")) }));
+  socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("excess")) }));
+  await nextTick();
+
+  expect(errors).toHaveLength(1);
+  expect(errors[0][0]).toStrictEqual("Failed to reject excess request excess");
+  expect(errors[0][1]).toEqual(expect.objectContaining({ message: "socket closed" }));
+});
+
 test("ConnectorRuntime logs WebSocket open and close events", () => {
   const infos: string[] = [];
   const warnings: unknown[][] = [];

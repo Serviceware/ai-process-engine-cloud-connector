@@ -540,9 +540,11 @@ configuration stays active. Check `docker logs` after an edit to see whether the
 change was accepted.
 
 Forwarding rules are evaluated in order. Later matching rules override earlier
-explicit methods, headers, timeouts, and authentication. No matching rule means
-deny. Inbound `authorization`, `cookie`, and `proxy-authorization` headers are
-removed unless a rule explicitly enables `forwardIncomingCredentials`.
+explicit methods and timeouts, and their header operations are applied after
+earlier ones. Authentication comes only from the last matching rule; it is never
+inherited from an earlier rule. No matching rule means deny. Inbound
+`authorization`, `cookie`, and `proxy-authorization` headers are removed unless
+a rule explicitly enables `forwardIncomingCredentials`.
 
 Basic authentication, static Bearer tokens, and OAuth 2.0 client credentials are
 supported for targets. Secret values can be interpolated with `{{ env.NAME }}`.

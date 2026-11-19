@@ -432,7 +432,7 @@ function validateAuthConfig(value: unknown, path: string): void {
       validateAuthValue(config.scope, `${path}.scope`);
     }
     if (!(config.issuer as string).includes("{{")) {
-      requireAbsoluteUrl(config.issuer, `${path}.issuer`, ["http:", "https:"]);
+      requireOAuthIssuerUrl(config.issuer, `${path}.issuer`);
     }
     return;
   }
@@ -614,6 +614,14 @@ function requireAbsoluteUrl(value: unknown, name: string, allowedProtocols: stri
     throw new Error(`${name} must not contain credentials`);
   }
   return url.toString();
+}
+
+export function requireOAuthIssuerUrl(value: unknown, name: string): string {
+  const url = requireAbsoluteUrl(value, name, ["http:", "https:"]);
+  if (url.includes("#")) {
+    throw new Error(`${name} must not contain a fragment`);
+  }
+  return url;
 }
 
 function readRequiredUrl(value: string | undefined, name: string, allowedProtocols: string[]): string {

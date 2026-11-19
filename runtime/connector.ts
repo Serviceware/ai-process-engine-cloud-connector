@@ -100,29 +100,33 @@ export class ConnectorRuntime {
       }
 
       if (isRequestFrame(frame) && !acceptingRequests) {
-        void Promise.resolve(
-          send(
-            createErrorFrame(frame.requestId, {
-              code: "CONNECTOR_DRAINING",
-              message: "Cloud Connector is draining before reconnect or shutdown",
-            }),
-          ),
-        ).catch((error) => {
-          this.logger.error(`Failed to reject draining request ${frame.requestId}`, error);
-        });
+        void Promise.resolve()
+          .then(() =>
+            send(
+              createErrorFrame(frame.requestId, {
+                code: "CONNECTOR_DRAINING",
+                message: "Cloud Connector is draining before reconnect or shutdown",
+              }),
+            ),
+          )
+          .catch((error) => {
+            this.logger.error(`Failed to reject draining request ${frame.requestId}`, error);
+          });
         return;
       }
       if (isRequestFrame(frame) && inFlight.size >= this.maximumConcurrentRequests) {
-        void Promise.resolve(
-          send(
-            createErrorFrame(frame.requestId, {
-              code: "TOO_MANY_REQUESTS",
-              message: "Cloud Connector request concurrency limit reached",
-            }),
-          ),
-        ).catch((error) => {
-          this.logger.error(`Failed to reject excess request ${frame.requestId}`, error);
-        });
+        void Promise.resolve()
+          .then(() =>
+            send(
+              createErrorFrame(frame.requestId, {
+                code: "TOO_MANY_REQUESTS",
+                message: "Cloud Connector request concurrency limit reached",
+              }),
+            ),
+          )
+          .catch((error) => {
+            this.logger.error(`Failed to reject excess request ${frame.requestId}`, error);
+          });
         return;
       }
 
