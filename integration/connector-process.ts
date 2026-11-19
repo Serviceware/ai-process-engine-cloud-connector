@@ -188,12 +188,15 @@ export class ConnectorProcess {
   }
 }
 
-/** Keeps toolchain variables but never leaks connector or proxy settings. */
+/** Keeps toolchain variables but never leaks connector, end-to-end, or proxy settings. */
 function inheritedEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] =>
-        entry[1] !== undefined && !entry[0].startsWith("CLOUD_CONNECTOR_") && !proxyVariable.test(entry[0]),
+        entry[1] !== undefined &&
+        !entry[0].startsWith("CLOUD_CONNECTOR_") &&
+        !entry[0].startsWith("E2E_") &&
+        !proxyVariable.test(entry[0]),
     ),
   );
 }

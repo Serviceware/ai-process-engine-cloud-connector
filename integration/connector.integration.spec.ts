@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { expect, test } from "vitest";
 import { ConnectorProcess } from "./connector-process.ts";
 import { StubAiProcessEngine } from "./stub-ai-process-engine.ts";
-import { StubTarget, type TargetHandler } from "./stub-target.ts";
+import { escapeRegExp, StubTarget, type TargetHandler } from "./stub-target.ts";
 import { waitFor } from "./wait.ts";
 
 const clientId = "integration-client";
@@ -482,10 +482,6 @@ async function waitForReload(connector: ConnectorProcess, succeeded: boolean): P
     const reload = body.configReload as { succeeded: boolean | null };
     return reload.succeeded === succeeded || undefined;
   }, `configuration reload with succeeded=${succeeded}`);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Windows cannot deliver SIGTERM to a child process.

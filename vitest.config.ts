@@ -25,6 +25,16 @@ export default defineConfig({
           hookTimeout: 30_000,
         },
       },
+      {
+        test: {
+          name: "e2e",
+          include: ["e2e/**/*.e2e.spec.ts"],
+          // The connector binds its fixed probe port 8080.
+          fileParallelism: false,
+          testTimeout: 60_000,
+          hookTimeout: 60_000,
+        },
+      },
     ],
   },
 });
