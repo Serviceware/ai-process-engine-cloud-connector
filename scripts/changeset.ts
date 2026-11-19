@@ -52,6 +52,10 @@ export function parseChangeset(content: string, path = "changeset"): Changeset {
   return { bump: release[1] as Bump, summary };
 }
 
+export function renderChangeset(bump: Bump, summary: string): string {
+  return `---\n"${packageName}": ${bump}\n---\n\n${summary}\n`;
+}
+
 export function bumpVersion(version: string, bump: Bump): string {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) {
@@ -99,7 +103,7 @@ async function addChangeset(args: string[]): Promise<void> {
       }
       const summary = (await ask("User-facing summary: ")).trim();
       if (!summary) throw new Error("A user-facing summary is required");
-      content = `---\n"${packageName}": ${selected}\n---\n\n${summary}\n`;
+      content = renderChangeset(selected, summary);
     } finally {
       readline.close();
     }
@@ -151,7 +155,7 @@ function answerQueue(readline: Interface): (query: string) => Promise<string> {
   };
 }
 
-async function runGit(args: string[]): Promise<string> {
+export async function runGit(args: string[]): Promise<string> {
   try {
     const { stdout } = await promisify(execFile)("git", args);
     return stdout.trim();

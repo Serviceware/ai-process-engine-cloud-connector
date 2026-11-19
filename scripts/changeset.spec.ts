@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { bumpVersion, parseChangeset } from "./changeset.ts";
+import { bumpVersion, parseChangeset, renderChangeset } from "./changeset.ts";
 
 const changesetScript = fileURLToPath(new URL("./changeset.ts", import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -30,6 +30,13 @@ test("parses quoting variants and CRLF line endings", () => {
   expect(parseChangeset("---\n@serviceware/cloud-connector: major\n---\nBreak config.\n")).toStrictEqual({
     bump: "major",
     summary: "Break config.",
+  });
+});
+
+test("renders changesets that parse back", () => {
+  expect(parseChangeset(renderChangeset("patch", "Update undici."))).toStrictEqual({
+    bump: "patch",
+    summary: "Update undici.",
   });
 });
 

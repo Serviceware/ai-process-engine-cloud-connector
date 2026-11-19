@@ -1,0 +1,105 @@
+name: Dependabot release preparation
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - package.json
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: Sync .node-version and write Changesets
+    # Pushes to the pull request branch; never run for forks.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Update .node-version
+        run: node scripts/sync-node-version.ts
+
+      - name: Write or extend Changesets for image changes
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: node scripts/dependabot-changeset.ts --base="${BASE_REF}"
+
+      # Pushes with the workflow token start CI runs that wait for approval.
+      - name: Push the release preparation
+        id: push
+        run: |
+          git add .node-version .changeset
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --message "chore(deps): prepare Dependabot update for release"
+          git push origin "HEAD:refs/heads/${GITHUB_HEAD_REF}"
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "changesets=$(git diff --name-only HEAD~1 HEAD -- .changeset | paste --serial --delimiters=' ')"
+          } >> "${GITHUB_OUTPUT}"
+
+      # The main ruleset requires resolved conversations, so this blocks the merge until someone checks the summary.
+      - name: Ask for a Changeset review
+        if: steps.push.outputs.changesets != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT: ${{ steps.push.outputs.commit }}
+          CHANGESETS: ${{ steps.push.outputs.changesets }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MARKER: "<!-- dependabot-changeset-review -->"
+        run: |
+          open_paths="$(gh api graphql \
+            --field owner="${GITHUB_REPOSITORY%/*}" \
+            --field repo="${GITHUB_REPOSITORY#*/}" \
+            --field number="${PR_NUMBER}" \
+            --raw-field query='
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      nodes { isResolved path comments(first: 1) { nodes { body } } }
+                    }
+                  }
+                }
+              }' \
+            --jq ".data.repository.pullRequest.reviewThreads.nodes[]
+              | select(.isResolved | not)
+              | select(.comments.nodes[0].body | contains(\"${MARKER}\"))
+              | .path")"
+
+          body="${MARKER}
+          Check this Changeset before merging. If the upstream release fixes anything relevant to the connector (security, crashes, changed behavior), add it on a new line after the first sentence. Then resolve this conversation."
+
+          for path in ${CHANGESETS}; do
+            if grep --fixed-strings --line-regexp --quiet "${path}" <<< "${open_paths}"; then
+              echo "An open Changeset review conversation already exists for ${path}"
+              continue
+            fi
+            line="$(awk '/^---$/ { fences++; next } fences == 2 && NF { print NR; exit }' "${path}")"
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" \
+              --field commit_id="${COMMIT}" \
+              --field path="${path}" \
+              --field line="${line}" \
+              --field side=RIGHT \
+              --field body="${body}" > /dev/null
+            echo "Requested a Changeset review for ${path}"
+          done

@@ -15,7 +15,8 @@ pnpm run changeset
 
 Choose the Semantic Versioning impact and describe the user-visible change. Use
 `pnpm run changeset --empty` when a pull request should not produce a
-release.
+release. Dependabot pull requests need a Changeset only when they change the
+published image; see [Repository checks](CI.md#dependabot).
 Do not manually edit the version, generated release heading, or maintained
 Compose image tags.
 
@@ -30,27 +31,31 @@ docker compose -f templates/examples/ticketing-yaml/docker-compose.yml config
 
 ## Publish
 
-An authorized maintainer starts the **Release management** workflow
-manually. It creates or updates a release pull request that combines all pending
-entries, updates `package.json` and `CHANGELOG.md`, and
-synchronizes the image
-version in both maintained Compose examples.
+1. An authorized maintainer starts the **Release pull request** workflow on
+   `main`. It combines all pending release Changesets, updates `package.json`
+   and `CHANGELOG.md`, synchronizes the image version in the maintained Compose
+   examples, and creates or updates the release pull request. Without a pending
+   release Changeset it creates no pull request; empty Changesets stay until the
+   next release consumes them.
+2. Approve the pending CI run of the release pull request, review it, and merge
+   it, or enable auto-merge.
+3. CI on `main` publishes the release because the `package.json` version has no
+   `vX.Y.Z` tag yet.
 
-After merging the release pull request, start the workflow manually again. This
-creates `vX.Y.Z` and invokes the verified container publisher for
-`ghcr.io/serviceware/cloud-connector:X.Y.Z` on Linux AMD64 and ARM64. It also
-updates the moving `X.Y`, `X`, and `latest` tags, attaches SBOM and provenance
-data, checks the published manifests, and pulls the private image with the
-workflow's GHCR credentials. The GitHub Release is created only after these
-checks pass. The image is available only to accounts with package read access;
-no anonymous pull is supported.
+The release run builds the image once for Linux AMD64 and ARM64 and pushes it as
+`X.Y.Z`, `X.Y`, `X`, `latest`, `dev`, and `sha-<full-commit-sha>`. It attaches
+SBOM and provenance data, checks that all tags resolve to the same multi-platform
+image, pulls it with the workflow's GHCR credentials, and smoke-tests the
+published digest. Only then does it create the `vX.Y.Z` tag and the GitHub
+Release. If that last job fails, rerun it; the published tags stay unchanged.
+The image is available only to accounts with package read access; no anonymous
+pull is supported.
 
 The repository setting **Actions > General > Allow GitHub Actions to create and
 approve pull requests** must be enabled. The first workflow publication creates
 and links the private `cloud-connector` package through `GITHUB_TOKEN` and its
 OCI source label. The linked repository needs package access for the workflow's
-authenticated verification. Each successful release updates `latest`
-automatically.
+authenticated verification.
 
 ## Development images
 
