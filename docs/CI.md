@@ -15,6 +15,27 @@ container image. It requires every non-release pull request to contain a valid
 Changeset; use an empty Changeset for work that should not create a new release.
 Keep pull requests green before merging.
 
+## End-to-end tests
+
+The **End-to-end tests** job builds the image and runs `pnpm run test:e2e`
+against the `dev-e2e` tenant on labs; see
+[Testing](conventions/TESTING.md#end-to-end-tests). It runs on pushes to `main`
+and on manual runs of the **CI** workflow, not on pull requests, because
+pull requests from forks and Dependabot get no repository secrets. Publishing
+the development or release image requires it to pass.
+
+The job reads these repository settings (**Settings > Secrets and variables >
+Actions**):
+
+| Name                                | Kind     | Value                                                |
+| ----------------------------------- | -------- | ---------------------------------------------------- |
+| `E2E_CLOUD_CONNECTOR_HOST`          | Variable | `https://dev-e2e.ai-process-engine.labs.swops.cloud` |
+| `E2E_CLOUD_CONNECTOR_CLIENT_ID`     | Variable | Client ID of the e2e service account                 |
+| `E2E_CLOUD_CONNECTOR_CLIENT_SECRET` | Secret   | Client secret of the e2e service account             |
+
+The service account needs the **Advanced Cloud Connector** and **Cloud
+Connector administration** permissions in that tenant. To run the suite for a branch, start the **CI** workflow manually on it.
+
 ## Dependabot
 
 Dependabot updates npm packages, GitHub Actions, and the digest-pinned
@@ -50,6 +71,7 @@ fixes it, or add a patch Changeset that rebuilds on the current base image.
 
 ## Main branch
 
-Every push to `main` publishes the development image. When the `package.json`
+Every push to `main` publishes the development image after the end-to-end
+tests pass. When the `package.json`
 version has no matching tag, the same run also publishes the release; see
 [Release](RELEASE.md).
