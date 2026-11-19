@@ -87,6 +87,32 @@ test("serve answers 500 and logs when the handler fails", async () => {
   }
 });
 
+test("serve logs the request line and the failure when the handler fails", async () => {
+  errors.length = 0;
+  const abortController = new AbortController();
+  const failure = new Error("handler failed");
+  const server = await serve(
+    () => {
+      throw failure;
+    },
+    {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger,
+    },
+  );
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    await fetch(`http://127.0.0.1:${port}/broken`);
+
+    expect(errors).toStrictEqual([["[cloud-connector] ERROR", "HTTP request GET /broken failed", failure]]);
+  } finally {
+    abortController.abort();
+  }
+});
+
 test("serve rejects when the port cannot be bound", async () => {
   const abortController = new AbortController();
   const options = {
@@ -104,6 +130,71 @@ test("serve rejects when the port cannot be bound", async () => {
         port: (first.address() as AddressInfo).port,
       }),
     ).rejects.toThrow(expect.objectContaining({ code: "EADDRINUSE" }));
+  } finally {
+    abortController.abort();
+  }
+});
+
+test("serve closes immediately when the signal is already aborted", async () => {
+  const server = await serve(() => new Response(), {
+    hostname: "127.0.0.1",
+    port: 0,
+    signal: AbortSignal.abort(),
+    logger,
+  });
+
+  expect(server.listening).toStrictEqual(false);
+});
+
+test("serve closes open connections when the signal aborts", async () => {
+  const abortController = new AbortController();
+  let requestReceived!: () => void;
+  const received = new Promise<void>((resolve) => {
+    requestReceived = resolve;
+  });
+  const server = await serve(
+    () => {
+      requestReceived();
+      return new Promise<Response>(() => undefined);
+    },
+    {
+      hostname: "127.0.0.1",
+      port: 0,
+      signal: abortController.signal,
+      logger,
+    },
+  );
+
+  const socket = connect((server.address() as AddressInfo).port, "127.0.0.1");
+  try {
+    await once(socket, "connect");
+    socket.write("GET /slow HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    await received;
+
+    abortController.abort();
+    await once(server, "close");
+
+    expect(server.listening).toStrictEqual(false);
+  } finally {
+    socket.destroy();
+  }
+});
+
+test("serve logs server errors that happen after startup", async () => {
+  errors.length = 0;
+  const abortController = new AbortController();
+  const server = await serve(() => new Response(), {
+    hostname: "127.0.0.1",
+    port: 0,
+    signal: abortController.signal,
+    logger,
+  });
+
+  try {
+    const failure = new Error("socket reset");
+    server.emit("error", failure);
+
+    expect(errors).toStrictEqual([["[cloud-connector] ERROR", "HTTP server error", failure]]);
   } finally {
     abortController.abort();
   }
