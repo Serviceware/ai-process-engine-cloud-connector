@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { bumpVersion, parseChangeset } from "./changeset.ts";
+import { bumpVersion, parseChangeset, renderChangeset } from "./changeset.ts";
 
 test("parses release and empty changesets", () => {
   expect(parseChangeset('---\n"@serviceware/cloud-connector": minor\n---\n\nAdd a feature.\n')).toStrictEqual({
@@ -10,6 +10,13 @@ test("parses release and empty changesets", () => {
     summary: "Add a feature.",
   });
   expect(parseChangeset("---\n---\n")).toStrictEqual({ summary: "" });
+});
+
+test("renders changesets that parse back", () => {
+  expect(parseChangeset(renderChangeset("patch", "Update undici."))).toStrictEqual({
+    bump: "patch",
+    summary: "Update undici.",
+  });
 });
 
 test("rejects malformed changesets", () => {
