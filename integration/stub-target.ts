@@ -12,6 +12,10 @@ export type TargetRequest = {
 
 export type TargetHandler = (request: TargetRequest) => Response | Promise<Response>;
 
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class StubTarget {
   readonly requests: TargetRequest[];
   private readonly server: Server;

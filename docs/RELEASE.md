@@ -39,8 +39,9 @@ docker compose -f templates/examples/ticketing-yaml/docker-compose.yml config
    next release consumes them.
 2. Approve the pending CI run of the release pull request, review it, and merge
    it, or enable auto-merge.
-3. CI on `main` publishes the release because the `package.json` version has no
-   `vX.Y.Z` tag yet.
+3. CI on `main` runs the
+   [end-to-end tests](CI.md#end-to-end-tests) and then publishes the release
+   because the `package.json` version has no `vX.Y.Z` tag yet.
 
 The release run builds the image once for Linux AMD64 and ARM64 and pushes it as
 `X.Y.Z`, `X.Y`, `X`, `latest`, `dev`, and `sha-<full-commit-sha>`. It attaches
