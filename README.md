@@ -313,16 +313,16 @@ docker run --detach `
 Docker downloads the image on the first start and prints the ID of the new
 container. What the options do:
 
-| Option                               | Meaning                                                                                         |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `--detach`                           | Runs the container in the background and returns the terminal to you.                           |
-| `--name ...`                         | Gives the container a fixed name for later commands such as `docker logs`.                      |
-| `--restart unless-stopped`           | Restarts the container after crashes and host reboots unless you stopped it with `docker stop`. |
-| `--stop-timeout 35`                  | Gives in-flight requests time to finish when the container stops.                               |
-| `--publish 8080:8080`                | Makes the probe endpoints reachable on port `8080` of the Docker host.                          |
-| `--volume "<dir>/config:/config:ro"` | Mounts your local `config` directory read-only as `/config` inside the container.               |
-| `--env NAME`                         | Passes the variable `NAME` from your terminal into the container.                               |
-| `ghcr.io/...:latest`                 | The image to run. `latest` is the most recent release.                                          |
+| Option                               | Meaning                                                                                                                                               |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--detach`                           | Runs the container in the background and returns the terminal to you.                                                                                 |
+| `--name ...`                         | Gives the container a fixed name for later commands such as `docker logs`.                                                                            |
+| `--restart unless-stopped`           | Restarts the container after crashes and host reboots unless you stopped it with `docker stop`.                                                       |
+| `--stop-timeout 35`                  | Gives in-flight requests time to finish when the container stops. Use `CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` plus 5 if you change the drain timeout. |
+| `--publish 8080:8080`                | Makes the probe endpoints reachable on port `8080` of the Docker host.                                                                                |
+| `--volume "<dir>/config:/config:ro"` | Mounts your local `config` directory read-only as `/config` inside the container.                                                                     |
+| `--env NAME`                         | Passes the variable `NAME` from your terminal into the container.                                                                                     |
+| `ghcr.io/...:latest`                 | The image to run. `latest` is the most recent release.                                                                                                |
 
 #### Host side and container side
 

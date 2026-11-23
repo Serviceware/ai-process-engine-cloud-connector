@@ -284,6 +284,7 @@ if (import.meta.main) {
       logger,
     ),
   ]);
-  // Forwarded requests abandoned by a drain timeout must not delay the exit.
+  // Last resort: forwarded requests still running after a drain timeout, or a
+  // platform connection that could not be closed, must not delay the exit.
   setTimeout(() => process.exit(0), shutdownGraceMs).unref();
 }
