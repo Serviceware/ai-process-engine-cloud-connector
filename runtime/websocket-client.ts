@@ -1,9 +1,10 @@
+import type { Duplex } from "node:stream";
 import { getGlobalDispatcher } from "undici";
 import { type AccessTokenOptions, generateAccessToken } from "./access-token.ts";
 import type { ConnectorConfig } from "./config.ts";
 import type { ConnectorRuntime } from "./connector.ts";
 import type { WebSocketAttachment } from "./connector.ts";
-import { recordFailure } from "./http-dispatcher.ts";
+import { captureUpgrade, recordFailure } from "./http-dispatcher.ts";
 import type { RuntimeLogger } from "./logger.ts";
 import { createLogger } from "./logger.ts";
 import type { Fetcher } from "./outbound-url-policy.ts";
@@ -14,6 +15,14 @@ type OpenOutcome = {
   /** True if the socket stayed open longer than the stable threshold. */
   stableOpen: boolean;
 };
+
+/**
+ * Time the peer has to answer the connector's close frame before the
+ * connection is destroyed. Without this, a peer that never answers keeps the
+ * old connection open, and frames it still sends there are silently dropped.
+ */
+export const closeHandshakeTimeoutMs = 1_000;
+const normalClosureCode = 1_000;
 
 /**
  * Owns one resilient connection generation and replaces it when a hot-reload
@@ -176,11 +185,15 @@ async function openWebSocket(
     }
 
     let failure: string | undefined;
+    let connection: Duplex | undefined;
     const socket = new WebSocket(config.websocketUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-      dispatcher: getGlobalDispatcher().compose(recordFailure((reason) => (failure = reason))),
+      dispatcher: getGlobalDispatcher().compose(
+        recordFailure((reason) => (failure = reason)),
+        captureUpgrade((upgraded) => (connection = upgraded)),
+      ),
     });
     const attachment: WebSocketAttachment = runtime.attachWebSocket(socket);
 
@@ -189,41 +202,57 @@ async function openWebSocket(
     let settled = false;
     let heartbeatId: ReturnType<typeof setInterval> | undefined;
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
-    let forceSettleTimer: ReturnType<typeof setTimeout> | undefined;
+    let closeHandshakeTimer: ReturnType<typeof setTimeout> | undefined;
     let closeRequested = false;
 
+    const isStableOpen = () => opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
     const clearHeartbeat = () => {
       if (heartbeatId !== undefined) {
         clearInterval(heartbeatId);
         heartbeatId = undefined;
       }
     };
-    const closeSocket = () => {
+    const destroyConnection = () => {
+      closeHandshakeTimer = undefined;
+      const timedOut = `Cloud Connector WebSocket close handshake did not complete within ${closeHandshakeTimeoutMs}ms`;
+      if (connection === undefined) {
+        // Nothing can end a connection that was not captured, so make the
+        // possible leak visible instead of claiming it was closed.
+        logger.warn(`${timedOut}, and no upgraded connection was captured to close`);
+      } else {
+        logger.warn(`${timedOut}; closing the connection`);
+        connection.destroy();
+      }
+      settle({ stableOpen: isStableOpen() });
+    };
+    /**
+     * Stops accepting requests, waits up to `drainTimeoutMs` for in-flight
+     * requests, and closes the socket. A peer that does not answer the close
+     * frame in time loses the connection instead of keeping it open.
+     */
+    const closeSocket = (reason: string, drainTimeoutMs: number) => {
       if (closeRequested) return;
       closeRequested = true;
       status.connectionState = "disconnected";
       clearHeartbeat();
       void attachment
-        .drain(config.drainTimeoutMs)
+        .drain(drainTimeoutMs)
         .then((drained) => {
-          if (!drained) {
-            logger.warn(`Cloud Connector drain timed out after ${config.drainTimeoutMs}ms`);
+          if (!drained && drainTimeoutMs > 0) {
+            logger.warn(`Cloud Connector drain timed out after ${drainTimeoutMs}ms`);
           }
           try {
-            socket.close();
+            socket.close(normalClosureCode, reason);
           } catch {
             // already closing/closed
           }
           if (!settled) {
-            forceSettleTimer = setTimeout(() => {
-              const stableOpen = opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
-              settle({ stableOpen });
-            }, 1_000);
+            closeHandshakeTimer = setTimeout(destroyConnection, closeHandshakeTimeoutMs);
           }
         })
         .catch(fail);
     };
-    const abort = () => closeSocket();
+    const abort = () => closeSocket("Cloud Connector closing", config.drainTimeoutMs);
 
     function cleanup(): void {
       clearHeartbeat();
@@ -231,9 +260,9 @@ async function openWebSocket(
         clearTimeout(connectTimer);
         connectTimer = undefined;
       }
-      if (forceSettleTimer !== undefined) {
-        clearTimeout(forceSettleTimer);
-        forceSettleTimer = undefined;
+      if (closeHandshakeTimer !== undefined) {
+        clearTimeout(closeHandshakeTimer);
+        closeHandshakeTimer = undefined;
       }
       signal.removeEventListener("abort", abort);
     }
@@ -302,13 +331,13 @@ async function openWebSocket(
             const limit = config.heartbeatIntervalMs * config.heartbeatTimeoutFactor;
             if (silentFor > limit) {
               logger.warn(`Cloud Connector WebSocket silent for ${silentFor}ms; reconnecting`);
-              // Peer is silent (half-open / dead): force reconnect.
-              closeSocket();
+              // A silent peer receives no responses, so reconnect without draining.
+              closeSocket("Cloud Connector peer silent", 0);
             }
           }
         } catch {
           // Sending or any unexpected fault: force a reconnect.
-          closeSocket();
+          closeSocket("Cloud Connector heartbeat failed", config.drainTimeoutMs);
         }
       }, config.heartbeatIntervalMs);
     });
@@ -325,8 +354,7 @@ async function openWebSocket(
     });
 
     socket.addEventListener("close", () => {
-      const stableOpen = opened && Date.now() - openedAt >= config.reconnectStableThresholdMs;
-      settle({ stableOpen });
+      settle({ stableOpen: isStableOpen() });
     });
   });
 }

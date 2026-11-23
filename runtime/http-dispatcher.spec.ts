@@ -4,7 +4,8 @@ import { createServer, type Server } from "node:http";
 import { createServer as createSocketServer, type AddressInfo } from "node:net";
 import { fetch } from "undici";
 import { afterEach, expect, test, vi } from "vitest";
-import { createHttpDispatcher, httpDispatcherOptions, recordFailure } from "./http-dispatcher.ts";
+import type { Duplex } from "node:stream";
+import { captureUpgrade, createHttpDispatcher, httpDispatcherOptions, recordFailure } from "./http-dispatcher.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -153,6 +154,59 @@ test("recordFailure passes response bodies through unchanged", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/items`, { dispatcher });
 
     expect(await response.text()).toStrictEqual("payload");
+    await dispatcher.close();
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
+test("captureUpgrade hands over the connection, and destroying it closes the WebSocket", async () => {
+  const server = createServer();
+  let clientEndedConnection = false;
+  server.on("upgrade", (request, socket) => {
+    socket.on("end", () => (clientEndedConnection = true));
+    socket.on("data", () => undefined);
+    const key = String(request.headers["sec-websocket-key"]);
+    const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+    );
+  });
+  const port = await listen(server);
+  const captured: Duplex[] = [];
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/socket`, {
+    dispatcher: createHttpDispatcher().compose(captureUpgrade((connection) => captured.push(connection))),
+  });
+  try {
+    await once(socket, "open");
+    expect(captured.length).toStrictEqual(1);
+
+    // The server never answers the close frame; only destroying the connection ends it.
+    socket.close();
+    captured[0].destroy();
+    const [event] = (await once(socket, "close")) as [CloseEvent];
+
+    expect(event.code).toStrictEqual(1006);
+    await vi.waitFor(() => expect(clientEndedConnection).toStrictEqual(true));
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
+test("captureUpgrade captures nothing for plain requests and passes bodies through", async () => {
+  const server = createServer((_request, response) => {
+    response.end("payload");
+  });
+  const port = await listen(server);
+  const captured: Duplex[] = [];
+  try {
+    const dispatcher = createHttpDispatcher().compose(captureUpgrade((connection) => captured.push(connection)));
+    const response = await fetch(`http://127.0.0.1:${port}/items`, { dispatcher });
+
+    expect(await response.text()).toStrictEqual("payload");
+    expect(captured).toStrictEqual([]);
     await dispatcher.close();
   } finally {
     server.closeAllConnections();

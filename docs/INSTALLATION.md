@@ -29,7 +29,10 @@ Configure the workload with:
 - the required `CLOUD_CONNECTOR_HOST`, `CLOUD_CONNECTOR_CLIENT_ID`, and
   `CLOUD_CONNECTOR_CLIENT_SECRET` environment variables;
 - any target secrets referenced by `cloud-connector.yml`;
-- one read-only directory mounted at `/config`; and
+- one read-only directory mounted at `/config`;
+- a stop grace period of at least `CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` plus
+  5 seconds (35 seconds by default), for example
+  `terminationGracePeriodSeconds: 35` in Kubernetes; and
 - an optional port mapping for the probe service on container port `8080`.
 
 The OAuth service account needs the **Advanced Cloud Connector** permission. See
@@ -97,6 +100,11 @@ shutdown. Override them with `CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`,
 `CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES`, and
 `CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` when needed. Response bodies are UTF-8
 text; binary payloads are not supported by the current platform protocol.
+
+When the platform stays silent longer than the heartbeat timeout, the connector
+reconnects at once without draining, because responses can no longer reach the
+platform. If the platform does not answer the connector's close frame within one
+second, the connector closes the connection itself.
 
 ## If it does not connect
 

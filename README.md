@@ -283,6 +283,7 @@ Bash (`\` continues the command on the next line):
 docker run --detach \
   --name serviceware-ai-process-engine-cloud-connector \
   --restart unless-stopped \
+  --stop-timeout 35 \
   --publish 8080:8080 \
   --volume "$PWD/config:/config:ro" \
   --env CLOUD_CONNECTOR_HOST \
@@ -299,6 +300,7 @@ last character on the line):
 docker run --detach `
   --name serviceware-ai-process-engine-cloud-connector `
   --restart unless-stopped `
+  --stop-timeout 35 `
   --publish 8080:8080 `
   --volume "${PWD}/config:/config:ro" `
   --env CLOUD_CONNECTOR_HOST `
@@ -316,6 +318,7 @@ container. What the options do:
 | `--detach`                           | Runs the container in the background and returns the terminal to you.                           |
 | `--name ...`                         | Gives the container a fixed name for later commands such as `docker logs`.                      |
 | `--restart unless-stopped`           | Restarts the container after crashes and host reboots unless you stopped it with `docker stop`. |
+| `--stop-timeout 35`                  | Gives in-flight requests time to finish when the container stops.                               |
 | `--publish 8080:8080`                | Makes the probe endpoints reachable on port `8080` of the Docker host.                          |
 | `--volume "<dir>/config:/config:ro"` | Mounts your local `config` directory read-only as `/config` inside the container.               |
 | `--env NAME`                         | Passes the variable `NAME` from your terminal into the container.                               |

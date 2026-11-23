@@ -503,6 +503,23 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test("closes the previous connection on reconnect when the engine never answers the close frame", async () => {
+  await withConnector({}, async ({ engine, target, connector }) => {
+    const previous = await engine.connection(0);
+    let previousClosed = false;
+    void previous.closed.then(() => (previousClosed = true));
+    previous.ignoreFrames();
+
+    await connector.writeConfig(connectorConfig(target, { heartbeatIntervalSeconds: 2 }));
+
+    await engine.connection(1);
+    await waitFor(() => previousClosed || undefined, "previous connection to close");
+    await connector.waitUntilReady();
+
+    expect(engine.connections.length).toStrictEqual(2);
+  });
+});
+
 test("sends control-plane requests through HTTP_PROXY", async () => {
   const proxied: string[] = [];
   const proxy = createHttpServer((request, response) => {

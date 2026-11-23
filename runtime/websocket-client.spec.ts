@@ -1,9 +1,18 @@
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { type AddressInfo, createServer, type Socket } from "node:net";
 import { expect, test, vi } from "vitest";
 import type { ConnectorConfig } from "./config.ts";
 import { ConnectorRuntime, type ProtocolExecutor } from "./connector.ts";
 import { createLogger } from "./logger.ts";
 import { createRuntimeStatus } from "./runtime-status.ts";
-import { computeBackoffDelay, delay, ReloadableWebSocketClient, runCloudWebSocketClient } from "./websocket-client.ts";
+import {
+  closeHandshakeTimeoutMs,
+  computeBackoffDelay,
+  delay,
+  ReloadableWebSocketClient,
+  runCloudWebSocketClient,
+} from "./websocket-client.ts";
 
 const baseConfig: ConnectorConfig = {
   websocketUrl: "wss://cloud.example/ws",
@@ -233,6 +242,7 @@ test("runCloudWebSocketClient force-closes a half-open socket via the watchdog",
 test("runCloudWebSocketClient force-settles when close never arrives", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openSilentNoClose";
+    const warnings: string[] = [];
     const abortController = new AbortController();
     const client = runCloudWebSocketClient(
       {
@@ -243,7 +253,7 @@ test("runCloudWebSocketClient force-settles when close never arrives", async () 
       createRuntime(),
       abortController.signal,
       status,
-      silentLogger,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
     );
 
     await waitUntil(() => FakeWebSocket.instances[0]?.closed === true, 400);
@@ -252,6 +262,87 @@ test("runCloudWebSocketClient force-settles when close never arrives", async () 
     expect(status.connectionState).toStrictEqual("open");
     abortController.abort();
     await client;
+
+    // The fake socket bypasses the dispatcher, so no upgraded connection exists to destroy.
+    expect(warnings).toContain(
+      `Cloud Connector WebSocket close handshake did not complete within ${closeHandshakeTimeoutMs}ms, ` +
+        "and no upgraded connection was captured to close",
+    );
+    expect(warnings.filter((entry) => entry.endsWith("closing the connection"))).toStrictEqual([]);
+  });
+});
+
+test("runCloudWebSocketClient destroys the connection when the peer never answers the close frame", async () => {
+  const peer = await startUnresponsivePeer();
+  const originalFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fakeCloudFetch });
+  const warnings: string[] = [];
+  const status = createRuntimeStatus();
+  const abortController = new AbortController();
+  try {
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, websocketUrl: peer.url, heartbeatIntervalMs: 60_000 },
+      createRuntime(),
+      abortController.signal,
+      status,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    );
+    await waitUntil(() => status.connectionState === "open", 2_000);
+
+    abortController.abort();
+    await client;
+    await waitUntil(() => peer.connectionClosed(), 500);
+
+    expect(decodeClientCloseFrame(peer.received())).toStrictEqual({ code: 1000, reason: "Cloud Connector closing" });
+    expect(warnings).toContain(
+      `Cloud Connector WebSocket close handshake did not complete within ${closeHandshakeTimeoutMs}ms; ` +
+        "closing the connection",
+    );
+  } finally {
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+    await peer.close();
+  }
+});
+
+test("runCloudWebSocketClient reconnects a silent peer without waiting for in-flight requests", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "openSilent";
+    const warnings: string[] = [];
+    let started = false;
+    const runtime = new ConnectorRuntime({
+      protocolExecutor: {
+        execute: () => {
+          started = true;
+          return new Promise(() => undefined);
+        },
+      },
+      logger: silentLogger,
+    });
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, heartbeatIntervalMs: 5, heartbeatTimeoutFactor: 20, drainTimeoutMs: 60_000 },
+      runtime,
+      abortController.signal,
+      status,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    );
+    await waitUntil(() => status.connectionState === "open");
+    FakeWebSocket.instances[0].receive(
+      JSON.stringify({
+        type: "request",
+        requestId: "stuck",
+        request: { method: "GET", url: "https://internal.example/items" },
+      }),
+    );
+    await waitUntil(() => started);
+
+    await waitUntil(() => FakeWebSocket.instances.length >= 2, 1_000);
+    abortController.abort();
+    await client;
+
+    expect(FakeWebSocket.instances[0].closeCode).toStrictEqual(1000);
+    expect(FakeWebSocket.instances[0].closeReason).toStrictEqual("Cloud Connector peer silent");
+    expect(warnings.filter((entry) => entry.includes("drain timed out"))).toStrictEqual([]);
   });
 });
 
@@ -759,6 +850,22 @@ function createRuntime(): ConnectorRuntime {
   });
 }
 
+/** Serves the control-plane `.well-known` and token endpoints. */
+function fakeCloudFetch(input: string | URL | Request): Promise<Response> {
+  const url = input instanceof Request ? input.url : input.toString();
+  if (url === "https://cloud.example/.well-known") {
+    return Promise.resolve(
+      Response.json({
+        auth: { issuer: "https://cloud.example/realms/serviceware" },
+      }),
+    );
+  }
+  if (url === "https://cloud.example/realms/serviceware/protocol/openid-connect/token") {
+    return Promise.resolve(Response.json({ access_token: "access-token" }));
+  }
+  return Promise.resolve(new Response(null, { status: 404 }));
+}
+
 /** Stubs fetch (token endpoint) and WebSocket, restoring them afterwards. */
 async function withFakeCloud(
   run: (ctx: { status: ReturnType<typeof createRuntimeStatus> }) => Promise<void>,
@@ -767,20 +874,7 @@ async function withFakeCloud(
   const originalWebSocket = globalThis.WebSocket;
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
-    value: (input: string | URL | Request) => {
-      const url = input instanceof Request ? input.url : input.toString();
-      if (url === "https://cloud.example/.well-known") {
-        return Promise.resolve(
-          Response.json({
-            auth: { issuer: "https://cloud.example/realms/serviceware" },
-          }),
-        );
-      }
-      if (url === "https://cloud.example/realms/serviceware/protocol/openid-connect/token") {
-        return Promise.resolve(Response.json({ access_token: "access-token" }));
-      }
-      return Promise.resolve(new Response(null, { status: 404 }));
-    },
+    value: fakeCloudFetch,
   });
   FakeWebSocket.instances = [];
   FakeWebSocket.behavior = "open";
@@ -801,6 +895,63 @@ async function withFakeCloud(
       value: originalWebSocket,
     });
   }
+}
+
+type UnresponsivePeer = {
+  url: string;
+  /** Bytes received after the upgrade. */
+  received: () => Buffer;
+  connectionClosed: () => boolean;
+  close: () => Promise<void>;
+};
+
+/** Accepts one WebSocket upgrade, then reads everything and answers nothing, not even a close frame. */
+async function startUnresponsivePeer(): Promise<UnresponsivePeer> {
+  const sockets: Socket[] = [];
+  let received = Buffer.alloc(0);
+  let upgraded = false;
+  let connectionClosed = false;
+  const server = createServer((socket) => {
+    sockets.push(socket);
+    socket.on("close", () => (connectionClosed = true));
+    socket.on("data", (chunk) => {
+      received = Buffer.concat([received, chunk]);
+      if (upgraded) return;
+      const head = received.toString("latin1");
+      const headEnd = head.indexOf("\r\n\r\n");
+      if (headEnd === -1) return;
+      upgraded = true;
+      received = received.subarray(headEnd + 4);
+      const key = /^sec-websocket-key:\s*(\S+)/im.exec(head)?.[1] ?? "";
+      const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+          `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `ws://127.0.0.1:${port}/socket`,
+    received: () => received,
+    connectionClosed: () => connectionClosed,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      await once(server, "close");
+    },
+  };
+}
+
+/** Decodes one masked client close frame with a short payload. */
+function decodeClientCloseFrame(frame: Buffer): { code: number; reason: string } {
+  expect(frame[0]).toStrictEqual(0x88);
+  const length = frame[1] & 0x7f;
+  const mask = frame.subarray(2, 6);
+  const payload = Buffer.from(frame.subarray(6, 6 + length).map((byte, index) => byte ^ mask[index % 4]));
+  return { code: payload.readUInt16BE(0), reason: payload.subarray(2).toString("utf8") };
 }
 
 function delayMs(ms: number): Promise<void> {
@@ -841,6 +992,8 @@ class FakeWebSocket extends EventTarget {
   readonly options?: { headers?: Record<string, string> };
   readyState = FakeWebSocket.OPEN;
   closed = false;
+  closeCode?: number;
+  closeReason?: string;
   #inboundTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(url: string, options?: { headers?: Record<string, string> }) {
@@ -879,11 +1032,13 @@ class FakeWebSocket extends EventTarget {
     this.dispatchEvent(new MessageEvent("message", { data }));
   }
 
-  close(): void {
+  close(code?: number, reason?: string): void {
     if (this.closed) {
       return;
     }
     this.closed = true;
+    this.closeCode = code;
+    this.closeReason = reason;
     this.readyState = FakeWebSocket.CLOSED;
     if (this.#inboundTimer !== undefined) {
       clearInterval(this.#inboundTimer);

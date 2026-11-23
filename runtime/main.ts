@@ -284,6 +284,6 @@ if (import.meta.main) {
       logger,
     ),
   ]);
-  // A WebSocket whose peer never answers the close frame keeps its socket open.
+  // Forwarded requests abandoned by a drain timeout must not delay the exit.
   setTimeout(() => process.exit(0), shutdownGraceMs).unref();
 }

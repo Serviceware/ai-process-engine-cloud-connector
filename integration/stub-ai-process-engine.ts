@@ -74,6 +74,15 @@ export class StubConnection {
     this.transport.pause();
   }
 
+  /**
+   * Keeps reading but discards every frame, so the connector's close frame is
+   * never answered while a closed connection is still noticed.
+   */
+  ignoreFrames(): void {
+    this.transport.removeAllListeners("data");
+    this.transport.on("data", () => undefined);
+  }
+
   terminate(): void {
     this.socket.terminate();
   }
