@@ -461,7 +461,7 @@ connector-defined names or defaults.
 | `CLOUD_CONNECTOR_RECONNECT_JITTER_RATIO`    |    No    |      `0.5` | Reconnect jitter from `0` to `1`.                                 |
 | `CLOUD_CONNECTOR_LIVENESS_STALE_SECONDS`    |    No    |      `120` | Maximum age of the runtime supervision tick.                      |
 | `CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES`   |    No    | `10485760` | Maximum buffered target response size.                            |
-| `CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`   |    No    |      `100` | Maximum forwarded requests in flight.                             |
+| `CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`   |    No    |      `100` | Maximum forwarded requests in flight, across reconnects.          |
 | `CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS`     |    No    |       `30` | Time allowed for requests to finish during reconnect or shutdown. |
 
 All durations must be whole seconds. The liveness window must be greater than

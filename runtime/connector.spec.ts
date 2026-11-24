@@ -133,6 +133,54 @@ test("ConnectorRuntime bounds concurrency and drains accepted requests", async (
   expect(await draining).toStrictEqual(true);
 });
 
+test("ConnectorRuntime keeps the concurrency limit across a reconnect while old requests still run", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const executed: string[] = [];
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: {
+      execute: async (frame) => {
+        executed.push(frame.requestId);
+        if (frame.requestId === "leftover") await gate;
+        return { statusCode: 204 };
+      },
+    },
+    logger: silentLogger,
+    maximumConcurrentRequests: 1,
+  });
+  const oldSocket = new FakeSocket();
+  const oldAttachment = runtime.attachWebSocket(oldSocket as unknown as WebSocket);
+  oldSocket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("leftover")) }));
+  await waitUntil(() => executed.length === 1);
+
+  expect(await oldAttachment.drain(0)).toStrictEqual(false);
+  const newSocket = new FakeSocket();
+  runtime.attachWebSocket(newSocket as unknown as WebSocket);
+  newSocket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("rejected")) }));
+  await nextTick();
+
+  expect(executed).toStrictEqual(["leftover"]);
+  expect(newSocket.sent.map((frame) => JSON.parse(frame))).toStrictEqual([
+    {
+      type: "response",
+      requestId: "rejected",
+      error: { code: "TOO_MANY_REQUESTS", message: "Cloud Connector request concurrency limit reached" },
+    },
+  ]);
+
+  release();
+  await waitUntil(() => oldSocket.sent.length === 1);
+  newSocket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("accepted")) }));
+  await waitUntil(() => newSocket.sent.length === 2);
+
+  expect(executed).toStrictEqual(["leftover", "accepted"]);
+  expect(JSON.parse(newSocket.sent[1])).toStrictEqual({
+    type: "response",
+    requestId: "accepted",
+    response: { statusCode: 204 },
+  });
+});
+
 test("ConnectorRuntime answers a heartbeat frame with a heartbeat frame", async () => {
   const sentFrames: WritableFrame[] = [];
 

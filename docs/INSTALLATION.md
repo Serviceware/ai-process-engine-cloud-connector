@@ -98,7 +98,10 @@ The defaults allow 100 concurrent forwarded requests, buffer at most 10 MiB per
 response, and drain accepted requests for up to 30 seconds before a reconnect or
 shutdown. Override them with `CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS`,
 `CLOUD_CONNECTOR_MAX_RESPONSE_BODY_BYTES`, and
-`CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` when needed. Response bodies are UTF-8
+`CLOUD_CONNECTOR_DRAIN_TIMEOUT_SECONDS` when needed. Requests that outlast the
+drain keep running until their forwarding timeout and still count against the
+concurrency limit after a reconnect, so the new connection rejects excess
+requests with `TOO_MANY_REQUESTS` until they finish. Response bodies are UTF-8
 text; binary payloads are not supported by the current platform protocol.
 
 When the platform stays silent longer than the heartbeat timeout, the connector

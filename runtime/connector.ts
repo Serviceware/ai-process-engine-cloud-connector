@@ -63,6 +63,11 @@ export class ConnectorRuntime {
   private readonly options: ConnectorRuntimeOptions;
   private readonly logger: RuntimeLogger;
   private readonly maximumConcurrentRequests: number;
+  /**
+   * Requests still running across all attachments. A drain that times out does
+   * not cancel its requests, so they keep their slots after a reconnect.
+   */
+  private activeRequests = 0;
 
   constructor(options: ConnectorRuntimeOptions) {
     this.options = options;
@@ -114,7 +119,7 @@ export class ConnectorRuntime {
           });
         return;
       }
-      if (isRequestFrame(frame) && inFlight.size >= this.maximumConcurrentRequests) {
+      if (isRequestFrame(frame) && this.activeRequests >= this.maximumConcurrentRequests) {
         void Promise.resolve()
           .then(() =>
             send(
@@ -135,8 +140,12 @@ export class ConnectorRuntime {
         this.logger.error(`Failed to process WebSocket message${requestId}`, error);
       });
       if (isRequestFrame(frame)) {
+        this.activeRequests += 1;
         inFlight.add(task);
-        void task.finally(() => inFlight.delete(task));
+        void task.finally(() => {
+          inFlight.delete(task);
+          this.activeRequests -= 1;
+        });
       }
     });
 
