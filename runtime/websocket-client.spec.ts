@@ -304,6 +304,30 @@ test("runCloudWebSocketClient destroys the connection when the peer never answer
   }
 });
 
+test("runCloudWebSocketClient starts no close timeout once the socket has closed", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const warnings: string[] = [];
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, heartbeatIntervalMs: 60_000 },
+      createRuntime(),
+      abortController.signal,
+      status,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    );
+    await waitUntil(() => status.connectionState === "open");
+
+    // FakeWebSocket fires close synchronously, so the socket has closed before a timeout could start.
+    abortController.abort();
+    await client;
+    await delayMs(closeHandshakeTimeoutMs + 200);
+
+    expect(FakeWebSocket.instances[0].closed).toStrictEqual(true);
+    expect(warnings.filter((entry) => entry.includes("close handshake did not complete"))).toStrictEqual([]);
+  });
+});
+
 test("runCloudWebSocketClient reconnects a silent peer without waiting for in-flight requests", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "openSilent";
@@ -666,6 +690,49 @@ test("runCloudWebSocketClient reconnects when sending a heartbeat throws", async
     await client;
 
     expect(FakeWebSocket.instances[0].closed).toStrictEqual(true);
+  });
+});
+
+test("runCloudWebSocketClient drains in-flight requests before reconnecting after a failed heartbeat", async () => {
+  await withFakeCloud(async ({ status }) => {
+    FakeWebSocket.behavior = "open";
+    const warnings: string[] = [];
+    let started = false;
+    const runtime = new ConnectorRuntime({
+      protocolExecutor: {
+        execute: () => {
+          started = true;
+          return new Promise(() => undefined);
+        },
+      },
+      logger: silentLogger,
+    });
+    const abortController = new AbortController();
+    const client = runCloudWebSocketClient(
+      { ...baseConfig, heartbeatIntervalMs: 30, drainTimeoutMs: 20 },
+      runtime,
+      abortController.signal,
+      status,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    );
+    await waitUntil(() => FakeWebSocket.instances.length === 1);
+    FakeWebSocket.instances[0].receive(
+      JSON.stringify({
+        type: "request",
+        requestId: "stuck",
+        request: { method: "GET", url: "https://internal.example/items" },
+      }),
+    );
+    await waitUntil(() => started);
+
+    FakeWebSocket.behavior = "sendThrows";
+    await waitUntil(() => FakeWebSocket.instances[0].closed, 1_000);
+    abortController.abort();
+    await client;
+
+    expect(FakeWebSocket.instances[0].closeCode).toStrictEqual(1000);
+    expect(FakeWebSocket.instances[0].closeReason).toStrictEqual("Cloud Connector heartbeat failed");
+    expect(warnings).toContain("Cloud Connector drain timed out after 20ms");
   });
 });
 
