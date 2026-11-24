@@ -30,17 +30,17 @@
   },
   "devDependencies": {
     "@goast/core": "0.7.1",
-    "@goast/typescript": "0.9.1",
+    "@goast/typescript": "0.9.3",
     "@types/node": "24.19.2",
     "@types/ws": "8.18.2",
     "@vitest/coverage-v8": "5.1.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "oxfmt": "0.78.0",
-    "oxlint": "1.93.0",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
     "typescript": "7.0.2",
     "vitest": "5.1.0",
-    "ws": "8.22.2"
+    "ws": "8.23.0"
   },
   "engines": {
     "node": ">=24.22.1 <25"
