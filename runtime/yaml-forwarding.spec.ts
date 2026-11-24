@@ -693,6 +693,50 @@ async function oauthExecutor(tokenResponses: () => Response, tokenCalls: { count
   });
 }
 
+test("YamlForwardingExecutor aborts the target request when the request is cancelled", async () => {
+  const executor = await createYamlForwardingExecutor({
+    config: configFor("\n- target: ^https://internal[.]example/.*$\n"),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) =>
+      new Promise((_resolve, reject) => {
+        const { signal } = input as Request;
+        if (signal.aborted) reject(signal.reason);
+        signal.addEventListener("abort", () => reject(signal.reason));
+      })) as Fetcher,
+  });
+  const cancellation = new AbortController();
+  const reason = new RuntimeError("CONNECTOR_DRAINING", "cancelled");
+  const execution = executor.execute(itemsFrame, cancellation.signal);
+
+  cancellation.abort(reason);
+
+  await expect(execution).rejects.toBe(reason);
+});
+
+test("YamlForwardingExecutor stops waiting for a shared OAuth2 token when the request is cancelled", async () => {
+  const targetCalls: string[] = [];
+  const executor = await createYamlForwardingExecutor({
+    config: configFor(oauthRule),
+    configPath: "test.yml",
+    logger: silentLogger,
+    nextFetch: ((input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url === "https://auth.example/token") return new Promise(() => undefined);
+      targetCalls.push(url);
+      return Promise.resolve(new Response("ok"));
+    }) as Fetcher,
+  });
+  const cancellation = new AbortController();
+  const reason = new RuntimeError("CONNECTOR_DRAINING", "cancelled");
+  const execution = executor.execute(itemsFrame, cancellation.signal);
+
+  cancellation.abort(reason);
+
+  await expect(execution).rejects.toBe(reason);
+  expect(targetCalls).toStrictEqual([]);
+});
+
 test("YamlForwardingExecutor sends the OAuth2 token request as a non-redirecting form POST", async () => {
   const seen: { input: unknown; init: RequestInit | undefined }[] = [];
   for (const scope of [undefined, "inventory.read"]) {

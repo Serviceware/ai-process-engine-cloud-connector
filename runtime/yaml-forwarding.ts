@@ -112,7 +112,7 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     );
   }
 
-  async execute(frame: CloudConnectorRequestFrame): Promise<CloudConnectorHttpResponse> {
+  async execute(frame: CloudConnectorRequestFrame, signal?: AbortSignal): Promise<CloudConnectorHttpResponse> {
     const targetUrl = parseRequestedUrl(frame.request.url, this.configPath);
     const matchingRules = this.rules.filter((rule) => rule.matcher.test(targetUrl.href)).map((rule) => rule.config);
     if (matchingRules.length === 0) {
@@ -148,11 +148,16 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     if (forwarding.request) {
       forwardedRequest = applyYamlRequestForwardingConfig(forwarding.request, forwardedRequest, context);
       if (forwarding.request.auth) {
-        forwardedRequest = await this.applyAuth(
-          forwarding.request.auth,
-          forwardedRequest,
-          context,
-          effectiveTimeout(forwarding.timeout, frame.request.timeoutSeconds),
+        // The token request is shared with other requests, so a cancelled
+        // request stops waiting for it instead of aborting it.
+        forwardedRequest = await untilAborted(
+          this.applyAuth(
+            forwarding.request.auth,
+            forwardedRequest,
+            context,
+            effectiveTimeout(forwarding.timeout, frame.request.timeoutSeconds),
+          ),
+          signal,
         );
       }
     }
@@ -176,7 +181,8 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
           forwardedRequest.method === "GET" || forwardedRequest.method === "HEAD"
             ? undefined
             : (forwardedRequest.body ?? undefined),
-        signal: AbortSignal.timeout(timeout),
+        signal:
+          signal === undefined ? AbortSignal.timeout(timeout) : AbortSignal.any([AbortSignal.timeout(timeout), signal]),
       });
     } catch (error) {
       if (error instanceof RuntimeError) throw error;
@@ -301,6 +307,17 @@ export class YamlForwardingExecutor implements ProtocolExecutor {
     });
     return payload.access_token;
   }
+}
+
+/** Settles like `promise`, or rejects with the abort reason as soon as `signal` aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    if (signal.aborted) onAbort();
+  });
 }
 
 function validatedIssuer(issuer: string): string {

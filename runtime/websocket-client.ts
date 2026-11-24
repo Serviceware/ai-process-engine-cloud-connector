@@ -227,8 +227,9 @@ async function openWebSocket(
     };
     /**
      * Stops accepting requests, waits up to `drainTimeoutMs` for in-flight
-     * requests, and closes the socket. A peer that does not answer the close
-     * frame in time loses the connection instead of keeping it open.
+     * requests, cancels the rest, and closes the socket. A peer that does not
+     * answer the close frame in time loses the connection instead of keeping
+     * it open.
      */
     const closeSocket = (reason: string, drainTimeoutMs: number) => {
       if (closeRequested) return;

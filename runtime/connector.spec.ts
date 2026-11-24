@@ -181,6 +181,100 @@ test("ConnectorRuntime keeps the concurrency limit across a reconnect while old 
   });
 });
 
+test("ConnectorRuntime cancels requests that outlast the drain and frees their slots", async () => {
+  const signals: (AbortSignal | undefined)[] = [];
+  const warnings: string[] = [];
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: {
+      execute: (frame, signal) => {
+        if (frame.requestId !== "stuck") return Promise.resolve({ statusCode: 204 });
+        signals.push(signal);
+        return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason)));
+      },
+    },
+    logger: { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    maximumConcurrentRequests: 1,
+  });
+  const oldSocket = new FakeSocket();
+  const oldAttachment = runtime.attachWebSocket(oldSocket as unknown as WebSocket);
+  oldSocket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("stuck")) }));
+  await waitUntil(() => signals.length === 1);
+
+  expect(await oldAttachment.drain(0)).toStrictEqual(false);
+  expect(signals[0]?.aborted).toStrictEqual(true);
+  expect(warnings).toContain("Cancelling 1 forwarded request(s) because their platform connection is closing");
+  await waitUntil(() => oldSocket.sent.length === 1);
+  expect(JSON.parse(oldSocket.sent[0])).toStrictEqual({
+    type: "response",
+    requestId: "stuck",
+    error: {
+      code: "CONNECTOR_DRAINING",
+      message: "Cloud Connector cancelled the request because its platform connection is closing",
+    },
+  });
+
+  // The slot frees once the cancelled request has finished after sending its error frame.
+  await nextTick();
+  const newSocket = new FakeSocket();
+  runtime.attachWebSocket(newSocket as unknown as WebSocket);
+  newSocket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("accepted")) }));
+  await waitUntil(() => newSocket.sent.length === 1);
+
+  expect(JSON.parse(newSocket.sent[0])).toStrictEqual({
+    type: "response",
+    requestId: "accepted",
+    response: { statusCode: 204 },
+  });
+});
+
+test("ConnectorRuntime cancels running requests when the WebSocket closes", async () => {
+  const signals: (AbortSignal | undefined)[] = [];
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: {
+      execute: (_frame, signal) => {
+        signals.push(signal);
+        return new Promise(() => undefined);
+      },
+    },
+    logger: silentLogger,
+  });
+  const socket = new FakeSocket();
+  runtime.attachWebSocket(socket as unknown as WebSocket);
+  socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("running")) }));
+  await waitUntil(() => signals.length === 1);
+  expect(signals[0]?.aborted).toStrictEqual(false);
+
+  socket.dispatchEvent(Object.assign(new Event("close"), { code: 1006, reason: "" }));
+
+  expect(signals[0]?.aborted).toStrictEqual(true);
+});
+
+test("ConnectorRuntime does not cancel requests that finish within the drain", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const signals: (AbortSignal | undefined)[] = [];
+  const runtime = new ConnectorRuntime({
+    protocolExecutor: {
+      execute: async (_frame, signal) => {
+        signals.push(signal);
+        await gate;
+        return { statusCode: 204 };
+      },
+    },
+    logger: silentLogger,
+  });
+  const socket = new FakeSocket();
+  const attachment = runtime.attachWebSocket(socket as unknown as WebSocket);
+  socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(requestFrame("finishing")) }));
+  await waitUntil(() => signals.length === 1);
+
+  const draining = attachment.drain(1_000);
+  release();
+
+  expect(await draining).toStrictEqual(true);
+  expect(signals[0]?.aborted).toStrictEqual(false);
+});
+
 test("ConnectorRuntime answers a heartbeat frame with a heartbeat frame", async () => {
   const sentFrames: WritableFrame[] = [];
 

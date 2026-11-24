@@ -367,10 +367,12 @@ test("runCloudWebSocketClient reconnects a silent peer without waiting for in-fl
     FakeWebSocket.behavior = "openSilent";
     const warnings: string[] = [];
     let started = false;
+    let cancelled = false;
     const runtime = new ConnectorRuntime({
       protocolExecutor: {
-        execute: () => {
+        execute: (_frame, signal) => {
           started = true;
+          signal?.addEventListener("abort", () => (cancelled = true));
           return new Promise(() => undefined);
         },
       },
@@ -401,6 +403,8 @@ test("runCloudWebSocketClient reconnects a silent peer without waiting for in-fl
     expect(FakeWebSocket.instances[0].closeCode).toStrictEqual(1000);
     expect(FakeWebSocket.instances[0].closeReason).toStrictEqual("Cloud Connector peer silent");
     expect(warnings.filter((entry) => entry.includes("drain timed out"))).toStrictEqual([]);
+    // Its response can no longer reach the platform, so the request stops instead of holding its slot.
+    expect(cancelled).toStrictEqual(true);
   });
 });
 

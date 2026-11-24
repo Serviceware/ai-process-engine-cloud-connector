@@ -284,7 +284,7 @@ if (import.meta.main) {
       logger,
     ),
   ]);
-  // Last resort: forwarded requests still running after a drain timeout, or a
-  // platform connection that could not be closed, must not delay the exit.
+  // Last resort: a forwarded request that ignores cancellation, or a platform
+  // connection that could not be closed, must not delay the exit.
   setTimeout(() => process.exit(0), shutdownGraceMs).unref();
 }

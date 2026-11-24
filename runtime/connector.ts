@@ -15,15 +15,16 @@ import {
   parseMessageFrame,
   serializeFrame,
 } from "./protocol.ts";
-import { toCloudConnectorError } from "./runtime-error.ts";
+import { RuntimeError, toCloudConnectorError } from "./runtime-error.ts";
 
 export type FrameSender = (frame: WritableFrame) => void | Promise<void>;
 
 /**
- * Forwards the HTTP request carried by one inbound cloud frame.
+ * Forwards the HTTP request carried by one inbound cloud frame. `signal`
+ * aborts once the response can no longer reach the platform.
  */
 export interface ProtocolExecutor {
-  execute(frame: CloudConnectorRequestFrame): Promise<CloudConnectorHttpResponse>;
+  execute(frame: CloudConnectorRequestFrame, signal?: AbortSignal): Promise<CloudConnectorHttpResponse>;
 }
 
 /**
@@ -41,9 +42,9 @@ export class ReloadableProtocolExecutor implements ProtocolExecutor {
     this.current = next;
   }
 
-  execute(frame: CloudConnectorRequestFrame): Promise<CloudConnectorHttpResponse> {
+  execute(frame: CloudConnectorRequestFrame, signal?: AbortSignal): Promise<CloudConnectorHttpResponse> {
     const snapshot = this.current;
-    return snapshot.execute(frame);
+    return snapshot.execute(frame, signal);
   }
 }
 
@@ -55,7 +56,10 @@ export type ConnectorRuntimeOptions = {
 };
 
 export type WebSocketAttachment = {
-  /** Stops accepting requests and waits up to the supplied timeout. */
+  /**
+   * Stops accepting requests and waits up to the supplied timeout. Requests
+   * still running after the timeout are cancelled.
+   */
   drain: (timeoutMs: number) => Promise<boolean>;
 };
 
@@ -64,8 +68,8 @@ export class ConnectorRuntime {
   private readonly logger: RuntimeLogger;
   private readonly maximumConcurrentRequests: number;
   /**
-   * Requests still running across all attachments. A drain that times out does
-   * not cancel its requests, so they keep their slots after a reconnect.
+   * Requests still running across all attachments. A cancelled request keeps
+   * its slot until it has actually stopped, also after a reconnect.
    */
   private activeRequests = 0;
 
@@ -75,7 +79,7 @@ export class ConnectorRuntime {
     this.maximumConcurrentRequests = options.maximumConcurrentRequests ?? 100;
   }
 
-  async handleFrame(frame: CloudConnectorMessageFrame, send: FrameSender): Promise<void> {
+  async handleFrame(frame: CloudConnectorMessageFrame, send: FrameSender, signal?: AbortSignal): Promise<void> {
     if (isHeartbeatFrame(frame)) {
       this.logger.info("Received heartbeat frame; sending heartbeat response");
       await send(createHeartbeatFrame());
@@ -87,13 +91,33 @@ export class ConnectorRuntime {
       return;
     }
 
-    await this.handleRequestFrame(frame, send);
+    await this.handleRequestFrame(frame, send, signal);
   }
 
   attachWebSocket(socket: WebSocket): WebSocketAttachment {
     const inFlight = new Set<Promise<void>>();
     let acceptingRequests = true;
     const send = (frame: WritableFrame) => socket.send(serializeFrame(frame));
+    const cancellation = new AbortController();
+    /**
+     * Cancels the requests still running on this connection. Their responses
+     * can no longer reach the platform, and they would keep their concurrency
+     * slots on the next connection until their forwarding timeout.
+     */
+    const cancelInFlight = () => {
+      if (cancellation.signal.aborted) return;
+      if (inFlight.size > 0) {
+        this.logger.warn(
+          `Cancelling ${inFlight.size} forwarded request(s) because their platform connection is closing`,
+        );
+      }
+      cancellation.abort(
+        new RuntimeError(
+          "CONNECTOR_DRAINING",
+          "Cloud Connector cancelled the request because its platform connection is closing",
+        ),
+      );
+    };
 
     socket.addEventListener("message", (event) => {
       let frame: CloudConnectorMessageFrame;
@@ -135,7 +159,7 @@ export class ConnectorRuntime {
         return;
       }
 
-      const task = this.handleFrame(frame, send).catch((error) => {
+      const task = this.handleFrame(frame, send, cancellation.signal).catch((error) => {
         const requestId = isRequestFrame(frame) ? ` for request ${frame.requestId}` : "";
         this.logger.error(`Failed to process WebSocket message${requestId}`, error);
       });
@@ -158,6 +182,7 @@ export class ConnectorRuntime {
         code: e.code,
         reason: e.reason,
       });
+      cancelInFlight();
     });
 
     return {
@@ -171,14 +196,19 @@ export class ConnectorRuntime {
         const drained = Promise.allSettled(inFlight).then(() => true);
         const result = await Promise.race([drained, timedOut]);
         if (timeoutId !== undefined) clearTimeout(timeoutId);
+        if (!result) cancelInFlight();
         return result;
       },
     };
   }
 
-  private async handleRequestFrame(frame: CloudConnectorRequestFrame, send: FrameSender): Promise<void> {
+  private async handleRequestFrame(
+    frame: CloudConnectorRequestFrame,
+    send: FrameSender,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
-      const response = await this.options.protocolExecutor.execute(frame);
+      const response = await this.options.protocolExecutor.execute(frame, signal);
       await send(createResponseFrame(frame.requestId, response));
     } catch (error) {
       const connectorError = toCloudConnectorError(error);

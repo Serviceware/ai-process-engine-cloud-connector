@@ -537,6 +537,42 @@ test("reconnects when the engine starts a close and never ends the connection", 
   });
 });
 
+test("cancels a forwarded request when its connection closes, so the next connection gets the slot", async () => {
+  let releaseSlow!: () => void;
+  const slowReleased = new Promise<void>((resolve) => (releaseSlow = resolve));
+  await withConnector(
+    {
+      env: { CLOUD_CONNECTOR_MAX_CONCURRENT_REQUESTS: "1" },
+      target: async (request) => {
+        if (request.url.pathname === "/api/slow") await slowReleased;
+        return Response.json({ path: request.url.pathname });
+      },
+    },
+    async ({ engine, target }) => {
+      try {
+        const previous = await engine.connection(0);
+        previous.send(
+          JSON.stringify({
+            type: "request",
+            requestId: "slow",
+            request: { method: "GET", url: `${target.url}/api/slow` },
+          }),
+        );
+        await waitFor(() => target.requests.length === 1 || undefined, "slow request at the target");
+
+        previous.terminate();
+        const next = await engine.connection(1);
+        const frame = await next.request({ method: "GET", url: `${target.url}/api/items` });
+
+        expect(frame.error).toStrictEqual(undefined);
+        expect(frame.response?.statusCode).toStrictEqual(200);
+      } finally {
+        releaseSlow();
+      }
+    },
+  );
+});
+
 test("sends control-plane requests through HTTP_PROXY", async () => {
   const proxied: string[] = [];
   const proxy = createHttpServer((request, response) => {
