@@ -83,6 +83,15 @@ export class StubConnection {
     this.transport.on("data", () => undefined);
   }
 
+  /**
+   * Sends a close frame with code 1000, discards the connector's answer and
+   * never ends the TCP connection, so only the connector can end it.
+   */
+  closeWithoutEnding(): void {
+    this.ignoreFrames();
+    this.transport.write(Buffer.from([0x88, 0x02, 0x03, 0xe8]));
+  }
+
   terminate(): void {
     this.socket.terminate();
   }

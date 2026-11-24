@@ -323,6 +323,12 @@ async function openWebSocket(
           if (socket.readyState === WebSocket.OPEN) {
             logger.info("Sending Cloud Connector heartbeat");
             socket.send(serializeFrame(createHeartbeatFrame()));
+          } else if (socket.readyState === WebSocket.CLOSING) {
+            // The platform sent a close frame and Node answered it, so no
+            // response can reach the platform anymore. Node now waits for the
+            // platform to end the connection, without a time limit.
+            closeSocket("Cloud Connector closing", 0);
+            return;
           }
 
           if (config.heartbeatTimeoutFactor > 0) {

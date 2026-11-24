@@ -520,6 +520,23 @@ test("closes the previous connection on reconnect when the engine never answers 
   });
 });
 
+test("reconnects when the engine starts a close and never ends the connection", async () => {
+  // The fixture disables the heartbeat timeout, so only the close timeout can end the connection.
+  await withConnector({}, async ({ engine, connector }) => {
+    const previous = await engine.connection(0);
+    let previousClosed = false;
+    void previous.closed.then(() => (previousClosed = true));
+
+    previous.closeWithoutEnding();
+
+    await engine.connection(1);
+    await waitFor(() => previousClosed || undefined, "previous connection to close");
+    await connector.waitUntilReady();
+
+    expect(engine.connections.length).toStrictEqual(2);
+  });
+});
+
 test("sends control-plane requests through HTTP_PROXY", async () => {
   const proxied: string[] = [];
   const proxy = createHttpServer((request, response) => {

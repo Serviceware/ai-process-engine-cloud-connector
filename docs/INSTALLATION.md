@@ -104,7 +104,9 @@ text; binary payloads are not supported by the current platform protocol.
 When the platform stays silent longer than the heartbeat timeout, the connector
 reconnects at once without draining, because responses can no longer reach the
 platform. If the platform does not answer the connector's close frame within one
-second, the connector closes the connection itself.
+second, the connector closes the connection itself. If the platform sends a
+close frame and then leaves the connection open, the connector notices at the
+next heartbeat and closes the connection one second later.
 
 ## If it does not connect
 

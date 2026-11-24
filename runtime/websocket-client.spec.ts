@@ -304,6 +304,40 @@ test("runCloudWebSocketClient destroys the connection when the peer never answer
   }
 });
 
+test("runCloudWebSocketClient destroys the connection when the peer starts a close and never ends it", async () => {
+  const peer = await startUnresponsivePeer();
+  const originalFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fakeCloudFetch });
+  const warnings: string[] = [];
+  const status = createRuntimeStatus();
+  const abortController = new AbortController();
+  try {
+    const client = runCloudWebSocketClient(
+      // The silence timeout is off, so only the close timeout can end the connection.
+      { ...baseConfig, websocketUrl: peer.url, heartbeatIntervalMs: 20, heartbeatTimeoutFactor: 0 },
+      createRuntime(),
+      abortController.signal,
+      status,
+      { ...silentLogger, warn: (...data: unknown[]) => void warnings.push(String(data[0])) },
+    );
+    await waitUntil(() => status.connectionState === "open", 2_000);
+
+    // Node answers the close frame, then waits for the peer to end the TCP connection.
+    peer.sendClose();
+    await waitUntil(() => peer.connectionClosed(), 2_000);
+    abortController.abort();
+    await client;
+
+    expect(warnings).toContain(
+      `Cloud Connector WebSocket close handshake did not complete within ${closeHandshakeTimeoutMs}ms; ` +
+        "closing the connection",
+    );
+  } finally {
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+    await peer.close();
+  }
+});
+
 test("runCloudWebSocketClient starts no close timeout once the socket has closed", async () => {
   await withFakeCloud(async ({ status }) => {
     FakeWebSocket.behavior = "open";
@@ -969,6 +1003,8 @@ type UnresponsivePeer = {
   /** Bytes received after the upgrade. */
   received: () => Buffer;
   connectionClosed: () => boolean;
+  /** Sends a close frame with code 1000 and keeps the TCP connection open. */
+  sendClose: () => void;
   close: () => Promise<void>;
 };
 
@@ -1004,6 +1040,7 @@ async function startUnresponsivePeer(): Promise<UnresponsivePeer> {
     url: `ws://127.0.0.1:${port}/socket`,
     received: () => received,
     connectionClosed: () => connectionClosed,
+    sendClose: () => sockets[0].write(Buffer.from([0x88, 0x02, 0x03, 0xe8])),
     close: async () => {
       for (const socket of sockets) socket.destroy();
       server.close();
